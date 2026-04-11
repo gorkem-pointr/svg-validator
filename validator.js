@@ -99,6 +99,13 @@ const section_ids = {
 };
 
 
+function getSectionById(doc, id) {
+  // Capitalize id in different ways to allow for some flexibility, but still require exact matches
+  return doc.querySelector(`[id="${id}"], [id="${id.charAt(0).toUpperCase() + id.slice(1).toLowerCase()}"], [id="${id.toLowerCase()}"], [id="${id.toUpperCase()}"]`);
+}
+
+
+
 class CheckRegistry {
   static SVG_CHECKS = [
     {
@@ -125,7 +132,7 @@ class CheckRegistry {
       severity: 'error',
       async run(doc) {
         try {
-          const el = doc.getElementById(section_ids.gps);
+          const el = getSectionById(doc, section_ids.gps);
           if (!el) {
             return { pass: false, message: `No <g id="${section_ids.gps}"> group found. The parser uses this to geo-reference the map.` };
           }
@@ -142,7 +149,7 @@ class CheckRegistry {
       severity: 'error',
       async run(doc) {
         try {
-          const gps = doc.getElementById(section_ids.gps);
+          const gps = getSectionById(doc, section_ids.gps);
           const anchors = Array.from(gps.children).filter(c => c.tagName === 'g');
           if (anchors.length < 2) {
             return { pass: false, message: `Found ${anchors.length} anchor group(s); need at least 2 for geo-referencing.` };
@@ -160,7 +167,7 @@ class CheckRegistry {
       severity: 'error',
       async run(doc) {
         try {
-          const gps = doc.getElementById(section_ids.gps);
+          const gps = getSectionById(doc, section_ids.gps);
           const groups = Array.from(gps.children).filter(c => c.tagName === 'g');
 
           for (const g of groups) {
@@ -182,7 +189,7 @@ class CheckRegistry {
       severity: 'error',
       async run(doc, shared) {
         try {
-          const gps = doc.getElementById(section_ids.gps);
+          const gps = getSectionById(doc, section_ids.gps);
           const groups = Array.from(gps.children).filter(c => c.tagName === 'g');
 
           const anchors = [];
@@ -224,7 +231,7 @@ class CheckRegistry {
       severity: 'error',
       async run(doc) {
         try {
-          const el = doc.getElementById(section_ids.geolocation);
+          const el = getSectionById(doc, section_ids.geolocation);
           if (!el) {
             return { pass: false, message: `No <g id="${section_ids.geolocation}"> group found. This group holds modular/rack elements.` };
           }
@@ -241,7 +248,7 @@ class CheckRegistry {
       severity: 'error',
       async run(doc) {
         try {
-          const geo = doc.getElementById(section_ids.geolocation);
+          const geo = getSectionById(doc, section_ids.geolocation);
           const modulars = geo.querySelectorAll('rect, path');
           if (modulars.length === 0) {
             return { pass: false, message: `No <rect> or <path> elements inside <g id="${section_ids.geolocation}">.` };
@@ -261,7 +268,7 @@ class CheckRegistry {
       severity: 'warning',
       async run(doc, shared) {
         try {
-          const geo = doc.getElementById(section_ids.geolocation);
+          const geo = getSectionById(doc, section_ids.geolocation);
           const modulars = Array.from(geo.querySelectorAll('rect, path'));
           const missing  = modulars.filter(el => !el.getAttribute('id'));
           const ids      = modulars.map(el => el.getAttribute('id')).filter(Boolean);
@@ -309,7 +316,7 @@ class CheckRegistry {
           container.appendChild(doc.documentElement.cloneNode(true));
           document.body.appendChild(container);
 
-          const clonedGeo = container.querySelector('[id="geolocation"]');
+          const clonedGeo = getSectionById(container, section_ids.geolocation);
           const clonedById = new Map(
             Array.from(clonedGeo.querySelectorAll('rect, path'))
               .filter(el => el.getAttribute('id'))
@@ -431,16 +438,16 @@ class CheckRegistry {
     },
     {
       id: 'svg-walls-group',
-      name: 'Walls group present',
+      name: 'Walls group',
       description: `Should contain a <g id="${section_ids.walls}"> group for perimeter/wall polygons`,
       severity: 'error',
       async run(doc) {
         try {
-          const el = doc.getElementById(section_ids.walls);
+          const el = getSectionById(doc, section_ids.walls);
           if (!el) {
             return { pass: false, message: `<g id="${section_ids.walls}"> not found. Walls are required for accurate indoor maps.` };
           }
-          return { pass: true, message: `Found <g id="${section_ids.walls}">` };
+          return { pass: true, message: `Found <g id="${el.id}">` };
         } catch (err) {
           return { pass: false, message: `Error checking walls group: ${err.message}` };
         }
@@ -453,12 +460,12 @@ class CheckRegistry {
       severity: 'error',
       async run(doc) {
         try {
-          const el = doc.getElementById(section_ids.walls);
+          const el = getSectionById(doc, section_ids.walls);
           // Check for line and path elements as simple wall representations
           const lines = el.querySelectorAll('line');
           const paths = el.querySelectorAll('path');
           if (lines.length === 0 && paths.length === 0) {
-            return { pass: false, message: `<g id="${section_ids.walls}"> is empty. It should contain <line> or <path> elements to define walls.` };
+            return { pass: false, message: `<g id="${el.id}"> is empty. It should contain <line> or <path> elements to define walls.` };
           }
           
           // For lines check if their x1,y1,x2,y2 attributes are valid numbers
@@ -468,7 +475,7 @@ class CheckRegistry {
             const x2 = parseFloat(line.getAttribute('x2'));
             const y2 = parseFloat(line.getAttribute('y2'));
             if (isNaN(x1) || isNaN(y1) || isNaN(x2) || isNaN(y2)) {
-              return { pass: false, message: `<g id="${section_ids.walls}"> contains <line> elements with invalid coordinates.` };
+              return { pass: false, message: `<g id="${el.id}"> contains <line> elements with invalid coordinates.` };
             }
           }
 
@@ -476,11 +483,11 @@ class CheckRegistry {
           for (const path of paths) {
             const d = path.getAttribute('d');
             if (!d || d.trim() === '') {
-              return { pass: false, message: `<g id="${section_ids.walls}"> contains <path> elements with empty "d" attributes.` };
+              return { pass: false, message: `<g id="${el.id}"> contains <path> elements with empty "d" attributes.` };
             }
           }
 
-          return { pass: true, message: `<g id="${section_ids.walls}"> contains ${lines.length} line(s) and ${paths.length} path(s).` };
+          return { pass: true, message: `<g id="${el.id}"> contains ${lines.length} line(s) and ${paths.length} path(s).` };
 
         } catch (err) {
           return { pass: false, message: `Error checking walls group: ${err.message}` };
@@ -494,7 +501,7 @@ class CheckRegistry {
       severity: 'warning',
       async run(doc) {
         try {
-          const el = doc.getElementById(section_ids.obstacles);
+          const el = getSectionById(doc, section_ids.obstacles);
           if (!el) {
             return { pass: false, message: `<g id="${section_ids.obstacles}"> not found. Obstacles are optional for indoor maps.` };
           }

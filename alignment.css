@@ -40,7 +40,6 @@
 #alignView .align-section-title {
   font-size: 11px; text-transform: uppercase; letter-spacing: 1.2px;
   color: #1b998b; margin-bottom: 8px; font-weight: 700;
-  border-bottom: 1px solid #333; padding-bottom: 4px;
 }
 #alignView select,
 #alignView .align-sidebar button,
@@ -106,6 +105,31 @@
   background: rgba(0,0,0,0.75); color: #fff; padding: 2px 6px;
   border-radius: 3px; font-size: 12px; white-space: nowrap; font-weight: bold;
 }
+
+#alignView #map-search {
+  position: absolute; top: 12px; right: 12px; z-index: 1000;
+  display: flex; gap: 0;
+  background: rgba(26,26,46,0.92);
+  border-radius: 6px;
+  padding: 4px;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.4);
+}
+#alignView #map-search input {
+  background: transparent; border: none; outline: none;
+  color: #eee; font-size: 13px;
+  padding: 4px 8px; width: 240px;
+}
+#alignView #map-search input::placeholder { color: #888; }
+#alignView #map-search button {
+  background: #1b998b; border: none; color: #fff;
+  border-radius: 4px; cursor: pointer;
+  display: flex; align-items: center; justify-content: center;
+  padding: 4px 8px;
+}
+#alignView #map-search button:hover { background: #158a7d; }
+#alignView #map-search button svg { width: 14px; height: 14px; stroke: currentColor; }
+#alignView #map-search.searching button { opacity: .5; cursor: wait; }
+#alignView #map-search.error input { color: #e74c3c; }
 
 #alignView #basemap-switcher {
   position: absolute; bottom: 12px; left: 12px; z-index: 1000;

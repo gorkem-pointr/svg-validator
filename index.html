@@ -6,170 +6,307 @@
   <title>SVG Validator</title>
   <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230d0f18'/%3E%3Cpath d='M16 4 L28 8 L28 18 C28 24 22 29 16 31 C10 29 4 24 4 18 L4 8 Z' fill='none' stroke='%232563eb' stroke-width='2' stroke-linejoin='round'/%3E%3Cpolyline points='10,16 14,21 22,12' fill='none' stroke='%232563eb' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="alignment.css" />
 </head>
-<body>
+<body class="app-body">
 
-<div class="page">
-  <!-- ── Header ───────────────────────────────────────────────── -->
-  <header>
-    <div class="header-left">
+<div class="app">
+  <!-- ══════════════════════════════════════════════════════════
+       Sidebar (left): logo, file upload, nav
+       ══════════════════════════════════════════════════════════ -->
+  <aside class="sidebar">
+    <div class="sidebar-header">
       <div class="logo">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
         </svg>
       </div>
-      <div class="header-title">
+      <div class="sidebar-title">
         <h1>SVG Validator</h1>
-        <p>Checks the structure of the SVG as well as the consistency between the SVG and API data</p>
+        <span class="badge">v1.0</span>
       </div>
     </div>
-    <span class="badge">v1.0</span>
-  </header>
 
-  <!-- ── SVG File Upload ──────────────────────────────────────── -->
-  <div class="card">
-    <div class="card-title">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/>
-      </svg>
-      SVG File
-    </div>
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">SVG File</div>
 
-    <div class="dropzone" id="dropzone">
-      <input type="file" id="fileInput" accept=".svg,image/svg+xml" />
-      <div class="dropzone-icon">
+      <div class="dropzone dropzone-compact" id="dropzone">
+        <input type="file" id="fileInput" accept=".svg,image/svg+xml" />
+        <div class="dropzone-icon">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/>
+            <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
+          </svg>
+        </div>
+        <p><strong>Click to browse</strong></p>
+        <small>or drag &amp; drop a .svg</small>
+      </div>
+
+      <div class="file-info" id="fileInfo">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="16 16 12 12 8 16"/><line x1="12" y1="12" x2="12" y2="21"/>
-          <path d="M20.39 18.39A5 5 0 0 0 18 9h-1.26A8 8 0 1 0 3 16.3"/>
+          <polyline points="20 6 9 17 4 12"/>
         </svg>
+        <div class="file-info-text">
+          <div class="file-info-name" id="fileName">–</div>
+          <div class="file-info-size" id="fileSize">–</div>
+        </div>
+        <button class="file-clear" id="fileClear" title="Remove file">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          </svg>
+        </button>
       </div>
-      <p><strong>Click to browse</strong> or drag &amp; drop</p>
-      <small>Accepts .svg files only</small>
     </div>
 
-    <div class="file-info" id="fileInfo">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="20 6 9 17 4 12"/>
-      </svg>
-      <div class="file-info-text">
-        <div class="file-info-name" id="fileName">–</div>
-        <div class="file-info-size" id="fileSize">–</div>
-      </div>
-      <button class="file-clear" id="fileClear" title="Remove file">
+    <nav class="sidebar-nav">
+      <button id="navValidate" class="nav-btn" type="button">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>
+          <polyline points="20 6 9 17 4 12"/>
         </svg>
+        Validate
       </button>
-    </div>
-  </div>
-
-  <!-- ── API Credentials ──────────────────────────────────────── -->
-  <div class="card">
-    <div class="collapsible-header" id="apiToggleHeader">
-      <div class="card-title">
+      <button id="navAlign" class="nav-btn" type="button" disabled title="Load an SVG first">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+          <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
         </svg>
-        API Credentials
-      </div>
-      <button class="collapsible-toggle" id="apiToggleBtn">
-        <span id="apiToggleLabel">Show</span>
-        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <polyline points="6 9 12 15 18 9"/>
-        </svg>
+        Align
       </button>
-    </div>
+    </nav>
 
-    <div class="collapsible-body hidden" id="apiBody">
-      <div class="form-grid">
-        <div class="form-group full">
-          <label for="geoApiUrl">Geolocation API Endpoint</label>
-          <div class="input-wrap">
-            <input type="url" id="geoApiUrl" placeholder="api-endpoint" />
-            <button class="input-clear" data-target="geoApiUrl" title="Clear" tabindex="-1">
-              <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
+    <div class="sidebar-footer">
+      Browser-only — no data leaves your machine
+    </div>
+  </aside>
+
+  <!-- ══════════════════════════════════════════════════════════
+       Main (right): three views — home, validate, align
+       ══════════════════════════════════════════════════════════ -->
+  <main class="main">
+
+    <!-- ── Home view ────────────────────────────────────────── -->
+    <section id="homeView" class="view view-narrow">
+      <div class="hero">
+        <h1>SVG Validator &amp; Alignment</h1>
+        <p class="lead">
+          A browser-based toolkit for working with Vusion / Pointr floor-plan SVGs.
+          Validate the structure of an SVG against the geolocation API, or align
+          its anchor points onto a real-world map.
+        </p>
+
+        <div class="hero-grid">
+          <div class="hero-card">
+            <div class="hero-card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="20 6 9 17 4 12"/>
+              </svg>
+            </div>
+            <h3>Validate</h3>
+            <p>Check the SVG's internal structure and its consistency with the geolocation API.</p>
+          </div>
+          <div class="hero-card">
+            <div class="hero-card-icon">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
+              </svg>
+            </div>
+            <h3>Align</h3>
+            <p>Drop the SVG onto an OpenStreetMap tile, drag the anchors, save the corrected lat/lon back into the file.</p>
           </div>
         </div>
-        <div class="form-group">
-          <label for="apiKey">API Key</label>
-          <div class="input-wrap">
-            <input type="text" id="apiKey" placeholder="your-api-key" autocomplete="off" />
-            <button class="input-clear" data-target="apiKey" title="Clear" tabindex="-1">
-              <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
-          </div>
+
+        <div class="hero-steps">
+          <strong>Get started:</strong>
+          <ol>
+            <li>Pick an SVG in the sidebar.</li>
+            <li>Click <em>Validate</em> or <em>Align</em>.</li>
+          </ol>
         </div>
-        <div class="form-group">
-          <label for="siteId">Store ID</label>
-          <div class="input-wrap">
-            <input type="text" id="siteId" placeholder="store-id" />
-            <button class="input-clear" data-target="siteId" title="Clear" tabindex="-1">
-              <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-            </button>
+      </div>
+    </section>
+
+    <!-- ── Validate view ────────────────────────────────────── -->
+    <section id="validateView" class="view view-narrow" hidden>
+      <div class="view-header">
+        <h2>Validation</h2>
+        <p>Run structural checks and (optionally) cross-check against the geolocation API.</p>
+      </div>
+
+      <!-- API Credentials -->
+      <div class="card">
+        <div class="collapsible-header" id="apiToggleHeader">
+          <div class="card-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            API Credentials
+          </div>
+          <button class="collapsible-toggle" id="apiToggleBtn">
+            <span id="apiToggleLabel">Show</span>
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <polyline points="6 9 12 15 18 9"/>
+            </svg>
+          </button>
+        </div>
+
+        <div class="collapsible-body hidden" id="apiBody">
+          <div class="form-grid">
+            <div class="form-group full">
+              <label for="geoApiUrl">Geolocation API Endpoint</label>
+              <div class="input-wrap">
+                <input type="url" id="geoApiUrl" placeholder="api-endpoint" />
+                <button class="input-clear" data-target="geoApiUrl" title="Clear" tabindex="-1">
+                  <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="apiKey">API Key</label>
+              <div class="input-wrap">
+                <input type="text" id="apiKey" placeholder="your-api-key" autocomplete="off" />
+                <button class="input-clear" data-target="apiKey" title="Clear" tabindex="-1">
+                  <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+            </div>
+            <div class="form-group">
+              <label for="siteId">Store ID</label>
+              <div class="input-wrap">
+                <input type="text" id="siteId" placeholder="store-id" />
+                <button class="input-clear" data-target="siteId" title="Clear" tabindex="-1">
+                  <svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+                </button>
+              </div>
+            </div>
           </div>
         </div>
       </div>
-    </div>
-  </div>
 
-  <!-- ── Actions ──────────────────────────────────────────────── -->
-  <div class="actions">
-    <button class="btn btn-primary" id="runSvgBtn" disabled>
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-      </svg>
-      Run SVG Checks
-    </button>
-    <button class="btn btn-secondary" id="runAllBtn" disabled>
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polygon points="5 3 19 12 5 21 5 3"/>
-      </svg>
-      Run All Checks (incl. API)
-    </button>
-    <button class="btn btn-ghost" id="clearResultsBtn" style="margin-left:auto; display:none;">
-      <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.08"/>
-      </svg>
-      Reset
-    </button>
-  </div>
-
-  <!-- ── Results ──────────────────────────────────────────────── -->
-  <div id="results">
-    <!-- Summary bar filled dynamically -->
-    <div class="summary-bar" id="summaryBar"></div>
-
-    <!-- SVG section -->
-    <div class="results-section" id="svgSection" style="display:none;">
-      <div class="results-section-title">
-        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/>
-        </svg>
-        SVG Checks
+      <!-- Actions -->
+      <div class="actions">
+        <button class="btn btn-primary" id="runSvgBtn" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          Run SVG Checks
+        </button>
+        <button class="btn btn-secondary" id="runAllBtn" disabled>
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polygon points="5 3 19 12 5 21 5 3"/>
+          </svg>
+          Run All Checks (incl. API)
+        </button>
+        <button class="btn btn-ghost" id="clearResultsBtn" style="margin-left:auto; display:none;">
+          <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="1 4 1 10 7 10"/><path d="M3.51 15a9 9 0 1 0 .49-3.08"/>
+          </svg>
+          Reset
+        </button>
       </div>
-      <div class="check-list" id="svgChecklist"></div>
-    </div>
 
-    <!-- API section -->
-    <div class="results-section" id="apiSection" style="display:none;">
-      <div class="results-section-title">
-        <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
-          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
-        </svg>
-        API Checks
+      <!-- Results -->
+      <div id="results">
+        <div class="summary-bar" id="summaryBar"></div>
+
+        <div class="results-section" id="svgSection" style="display:none;">
+          <div class="results-section-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M13 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V9z"/><polyline points="13 2 13 9 20 9"/>
+            </svg>
+            SVG Checks
+          </div>
+          <div class="check-list" id="svgChecklist"></div>
+        </div>
+
+        <div class="results-section" id="apiSection" style="display:none;">
+          <div class="results-section-title">
+            <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+              <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+              <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+            </svg>
+            API Checks
+          </div>
+          <div class="check-list" id="apiChecklist"></div>
+        </div>
       </div>
-      <div class="check-list" id="apiChecklist"></div>
-    </div>
-  </div>
+    </section>
 
-  <footer>SVG Validator &mdash; browser-only, no data leaves your machine</footer>
+    <!-- ── Align view ───────────────────────────────────────── -->
+    <section id="alignmentView" class="view view-fill" hidden>
+      <div id="alignView" class="align-mode">
+        <div class="align-map-wrap">
+          <div id="alignMap"></div>
+          <div id="align-empty">No SVG loaded</div>
+          <div id="map-search">
+            <input type="text" id="map-search-input"
+                   placeholder="Search place or lat,lon" autocomplete="off" />
+            <button id="map-search-btn" type="button" title="Search">
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+              </svg>
+            </button>
+          </div>
+
+          <div id="basemap-switcher">
+            <label><input type="radio" name="basemap" value="osm" checked> OSM</label>
+            <label><input type="radio" name="basemap" value="google-roadmap"> Google Roads</label>
+            <label><input type="radio" name="basemap" value="google-satellite"> Google Satellite</label>
+            <label><input type="radio" name="basemap" value="google-hybrid"> Google Hybrid</label>
+          </div>
+        </div>
+
+        <aside class="align-sidebar">
+          <div class="align-section">
+            <div class="align-section-title">File</div>
+            <button id="btn-align-save" class="save" type="button">Download</button>
+          </div>
+
+          <div class="align-section">
+            <div class="align-section-title">Anchors</div>
+            <table id="anchor-table">
+              <colgroup>
+                <col class="col-label"><col class="col-lat"><col class="col-lon"><col class="col-cx"><col class="col-cy">
+              </colgroup>
+              <thead><tr><th></th><th>Lat</th><th>Lon</th><th>cx</th><th>cy</th></tr></thead>
+              <tbody id="anchor-tbody"></tbody>
+            </table>
+            <div style="margin-top:8px; display:flex; gap:6px;">
+              <button id="btn-add-anchor" type="button">Add Anchor</button>
+              <button id="btn-free-anchors" type="button">Free Anchors</button>
+            </div>
+            <div id="anchor-edit-status" style="font-size:10px; color:#777; margin-top:6px;"></div>
+          </div>
+
+          <div class="align-section">
+            <div class="align-section-title">Scale Lines</div>
+            <table id="scale-table">
+              <thead><tr><th>Name</th><th>Expected</th><th>Current</th><th>Diff</th></tr></thead>
+              <tbody id="scale-tbody"></tbody>
+            </table>
+            <div id="scale-info"></div>
+            <div style="margin-top:6px;">
+              <button id="btn-fix-scale" type="button" style="display:none;">Fix Scale</button>
+            </div>
+          </div>
+
+          <div class="align-section">
+            <div class="align-section-title">Opacity</div>
+            <div id="opacity-control">
+              <input type="range" id="opacity-slider" min="0" max="1" step="0.05" value="0.7">
+            </div>
+          </div>
+        </aside>
+      </div>
+    </section>
+
+  </main>
 </div>
 
 <script src="api.js"></script>
+<script src="alignment.js"></script>
 <script src="validator.js"></script>
 </body>
 </html>

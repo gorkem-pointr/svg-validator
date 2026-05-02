@@ -105,6 +105,55 @@ function getSectionById(doc, id) {
 }
 
 
+function findOverlaps(doc, elements, iouThreshold = 0.1) {
+  // Clone SVG into a hidden DOM element so getBBox() and getCTM() work
+  // for both <rect> and <path> elements, accounting for group transforms.
+  const container = document.createElement('div');
+  container.style.cssText = 'position:absolute;left:-99999px;top:-99999px;width:1px;height:1px;overflow:hidden;';
+  container.appendChild(doc.documentElement.cloneNode(true));
+  document.body.appendChild(container);
+
+  const clonedGeo = getSectionById(container, section_ids.geolocation);
+  const clonedById = new Map(
+    Array.from(clonedGeo.querySelectorAll('rect, path'))
+    .filter(el => el.getAttribute('id'))
+    .map(el => [el.getAttribute('id'), el])
+  );
+
+  const bboxes = [];
+  for (const el of elements) {
+    const id = el.getAttribute('id');
+    if (!id) continue;
+    
+    const cloned = clonedById.get(id);
+    if (!cloned) continue;
+    
+    try {
+      const localBBox = cloned.getBBox();
+      const ctm = cloned.getCTM();
+      const bbox = transformBBox(localBBox, ctm);
+      if (bbox.width > 0 && bbox.height > 0) {
+        bboxes.push({ id, bbox });
+      }
+    } catch (e) {
+      // skip elements that cannot be measured (e.g. invisible or degenerate)
+    }
+  }
+  document.body.removeChild(container);
+
+  // Check every pair for IoU > threshold
+  const overlaps = [];
+  for (let i = 0; i < bboxes.length; i++) {
+    for (let j = i + 1; j < bboxes.length; j++) {
+      const iou = computeIoU(bboxes[i].bbox, bboxes[j].bbox);
+      if (iou > iouThreshold) {
+        overlaps.push(`"${bboxes[i].id}" & "${bboxes[j].id}" (IoU: ${(iou * 100).toFixed(1)}%)`);
+      }
+    }
+  }
+  return overlaps;
+}
+
 
 class CheckRegistry {
   static SVG_CHECKS = [
@@ -309,61 +358,36 @@ class CheckRegistry {
             return { pass: true, message: 'Fewer than 2 modular elements; no overlap possible.' };
           }
 
-          // Clone SVG into a hidden DOM element so getBBox() and getCTM() work
-          // for both <rect> and <path> elements, accounting for group transforms.
-          const container = document.createElement('div');
-          container.style.cssText = 'position:absolute;left:-99999px;top:-99999px;width:1px;height:1px;overflow:hidden;';
-          container.appendChild(doc.documentElement.cloneNode(true));
-          document.body.appendChild(container);
-
-          const clonedGeo = getSectionById(container, section_ids.geolocation);
-          const clonedById = new Map(
-            Array.from(clonedGeo.querySelectorAll('rect, path'))
-              .filter(el => el.getAttribute('id'))
-              .map(el => [el.getAttribute('id'), el])
-          );
-
-          const bboxes = [];
-          for (const el of elements) {
-            const id = el.getAttribute('id');
-            if (!id) continue;
-            const cloned = clonedById.get(id);
-            if (!cloned) continue;
-            try {
-              const localBBox = cloned.getBBox();
-              const ctm = cloned.getCTM();
-              const bbox = transformBBox(localBBox, ctm);
-              if (bbox.width > 0 && bbox.height > 0) {
-                bboxes.push({ id, bbox });
-              }
-            } catch (e) {
-              // skip elements that cannot be measured (e.g. invisible or degenerate)
-            }
-          }
-
-          document.body.removeChild(container);
-
-          // Check every pair for IoU > 10%
-          const overlaps = [];
-          for (let i = 0; i < bboxes.length; i++) {
-            for (let j = i + 1; j < bboxes.length; j++) {
-              const iou = computeIoU(bboxes[i].bbox, bboxes[j].bbox);
-              if (iou > 0.10) {
-                overlaps.push(`"${bboxes[i].id}" & "${bboxes[j].id}" (IoU: ${(iou * 100).toFixed(1)}%)`);
-              }
-            }
-          }
-
+          const overlaps = findOverlaps(doc, elements, 0.2);
           if (overlaps.length > 0) {
             const shown = overlaps.slice(0, 10);
             const more = overlaps.length > 10 ? `\n…and ${overlaps.length - 10} more` : '';
-            return { pass: false, message: `${overlaps.length} overlapping pair(s) detected (IoU > 10%):\n${shown.join('\n')}${more}` };
+            return { pass: false, message: `${overlaps.length} overlapping pair(s) detected (IoU > 20%):\n${shown.join('\n')}${more}` };
           }
 
           return { pass: true, message: `No overlapping modular elements detected (checked ${bboxes.length} elements, ${bboxes.length * (bboxes.length - 1) / 2} pairs).` };
           
         } catch (err) {
           return { pass: false, message: `Error checking modular overlap: ${err.message}` };
+        }
+      }
+    },
+    {
+      id: 'svg-scale-line-check',
+      name: 'Scale line check',
+      description: 'Check the scale line in the GPS group.',
+      severity: 'warning',
+      async run(doc, shared) {
+        try {
+          const gpsGroup = doc.getElementById(section_ids.gps);
+          const scaleLine = gpsGroup.querySelector('line');
+          if (scaleLine) {
+            return { pass: true, message: `Scale line found in GPS group.` };
+          } else {
+            return { pass: false, message: `No scale line found in GPS group.` };
+          }
+        } catch (err) {
+          return { pass: false, message: `Error checking scale line: ${err.message}` };
         }
       }
     },
@@ -488,7 +512,6 @@ class CheckRegistry {
           }
 
           return { pass: true, message: `<g id="${el.id}"> contains ${lines.length} line(s) and ${paths.length} path(s).` };
-
         } catch (err) {
           return { pass: false, message: `Error checking walls group: ${err.message}` };
         }
@@ -741,6 +764,23 @@ class CheckRunner {
   const apiToggleBtn    = document.getElementById('apiToggleBtn');
   const apiBody         = document.getElementById('apiBody');
   const apiToggleLabel  = document.getElementById('apiToggleLabel');
+  const navValidate     = document.getElementById('navValidate');
+  const navAlign        = document.getElementById('navAlign');
+  const homeView        = document.getElementById('homeView');
+  const validateView    = document.getElementById('validateView');
+  const alignmentView   = document.getElementById('alignmentView');
+
+  function showView(name) {
+    homeView.hidden = name !== 'home';
+    validateView.hidden = name !== 'validate';
+    alignmentView.hidden = name !== 'align';
+    navValidate.classList.toggle('active', name === 'validate');
+    navAlign.classList.toggle('active', name === 'align');
+    if (name === 'align' && window.AlignmentView) window.AlignmentView.enter();
+    else if (window.AlignmentView) window.AlignmentView.exit();
+  }
+  navValidate.addEventListener('click', () => showView('validate'));
+  navAlign.addEventListener('click', () => { if (!navAlign.disabled) showView('align'); });
 
   // ── File Handling ────────────────────────────────────────────
   fileInput.addEventListener('change', e => loadFile(e.target.files[0]));
@@ -763,8 +803,9 @@ class CheckRunner {
     }
     const reader = new FileReader();
     reader.onload = ev => {
+      const text = ev.target.result;
       const parser = new DOMParser();
-      svgDoc = parser.parseFromString(ev.target.result, 'image/svg+xml');
+      svgDoc = parser.parseFromString(text, 'image/svg+xml');
       const parseErr = svgDoc.querySelector('parsererror');
       if (parseErr) {
         alert('The file could not be parsed as valid XML/SVG.');
@@ -776,6 +817,11 @@ class CheckRunner {
       runSvgBtn.disabled = false;
       updateRunAllBtn();
       clearResults();
+      if (window.AlignmentView) {
+        window.AlignmentView.setSvg(text, file.name);
+      }
+      navAlign.disabled = false;
+      navAlign.removeAttribute('title');
     };
     reader.readAsText(file);
   }
@@ -787,6 +833,12 @@ class CheckRunner {
     runSvgBtn.disabled = true;
     runAllBtn.disabled = true; // no SVG = always disabled regardless of credentials
     clearResults();
+    if (window.AlignmentView) {
+      window.AlignmentView.clear();
+    }
+    navAlign.disabled = true;
+    navAlign.title = 'Load an SVG first';
+    if (!alignmentView.hidden) showView('home');
   }
 
   function formatBytes(b) {

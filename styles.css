@@ -45,6 +45,174 @@ a { color: var(--accent); text-decoration: none; }
 /* ── Layout ───────────────────────────────────────────────── */
 .page { max-width: 900px; margin: 0 auto; padding: 0 20px 60px; }
 
+/* ── App shell (sidebar + main) ───────────────────────────── */
+body.app-body { height: 100vh; overflow: hidden; }
+.app {
+  display: flex;
+  height: 100vh;
+}
+
+.sidebar {
+  width: 280px;
+  min-width: 280px;
+  background: var(--surface);
+  border-right: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  padding: 18px 16px;
+  overflow-y: auto;
+  gap: 18px;
+}
+.sidebar-header {
+  display: flex; align-items: center; gap: 12px;
+}
+.sidebar-header .logo {
+  width: 36px; height: 36px;
+  background: linear-gradient(135deg, var(--accent), #3b82f6);
+  border-radius: var(--radius-sm);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 0 16px var(--accent-glow);
+  flex: none;
+}
+.sidebar-header .logo svg { width: 20px; height: 20px; stroke: #fff; }
+.sidebar-title {
+  display: flex; align-items: center; gap: 8px;
+  flex-wrap: wrap;
+}
+.sidebar-title h1 {
+  font-size: 1rem; font-weight: 700;
+  background: linear-gradient(90deg, #e2e8f0, #94a3b8);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+}
+
+.sidebar-section { display: flex; flex-direction: column; gap: 8px; }
+.sidebar-section-title {
+  font-size: .7rem; font-weight: 600;
+  letter-spacing: .08em; text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.sidebar-nav { display: flex; flex-direction: column; gap: 6px; }
+.nav-btn {
+  display: flex; align-items: center; gap: 10px;
+  background: var(--surface2); color: var(--text-dim);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px;
+  font-size: .9rem; font-weight: 600;
+  cursor: pointer;
+  text-align: left;
+  transition: background .15s, color .15s, border-color .15s;
+}
+.nav-btn svg { width: 16px; height: 16px; stroke: currentColor; flex: none; }
+.nav-btn:hover:not(:disabled) {
+  background: var(--surface3); color: var(--text);
+}
+.nav-btn.active {
+  background: var(--accent-glow); color: var(--accent);
+  border-color: rgba(37,99,235,.4);
+}
+.nav-btn:disabled { opacity: .4; cursor: not-allowed; }
+
+.sidebar-footer {
+  margin-top: auto;
+  font-size: .7rem; color: var(--text-muted);
+  border-top: 1px solid var(--border);
+  padding-top: 12px;
+}
+
+/* ── Main pane ────────────────────────────────────────────── */
+.main {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.view { display: flex; flex-direction: column; }
+.view[hidden] { display: none; }
+.view-narrow {
+  width: 100%;
+  max-width: 900px;
+  margin: 0 auto;
+  padding: 32px 28px 60px;
+}
+.view-fill {
+  flex: 1;
+  padding: 20px;
+  min-height: 0;
+}
+
+.view-header { margin-bottom: 24px; }
+.view-header h2 {
+  font-size: 1.4rem; font-weight: 700; color: var(--text);
+}
+.view-header p { color: var(--text-muted); font-size: .9rem; margin-top: 4px; }
+
+/* ── Home view ────────────────────────────────────────────── */
+.hero { padding-top: 12px; }
+.hero h1 {
+  font-size: 1.8rem; font-weight: 700;
+  background: linear-gradient(90deg, #e2e8f0, #94a3b8);
+  -webkit-background-clip: text; -webkit-text-fill-color: transparent;
+  margin-bottom: 12px;
+}
+.hero .lead {
+  font-size: 1rem; color: var(--text-dim);
+  max-width: 640px; margin-bottom: 28px;
+}
+.hero-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 14px;
+  margin-bottom: 28px;
+}
+.hero-card {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+}
+.hero-card-icon {
+  width: 36px; height: 36px;
+  background: var(--accent-glow);
+  border-radius: var(--radius-sm);
+  display: flex; align-items: center; justify-content: center;
+  margin-bottom: 12px;
+}
+.hero-card-icon svg { width: 18px; height: 18px; stroke: var(--accent); }
+.hero-card h3 {
+  font-size: .95rem; font-weight: 600; margin-bottom: 6px; color: var(--text);
+}
+.hero-card p { font-size: .85rem; color: var(--text-muted); }
+.hero-steps {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 16px 20px;
+  font-size: .9rem; color: var(--text-dim);
+}
+.hero-steps strong { color: var(--text); display: block; margin-bottom: 6px; }
+.hero-steps ol { padding-left: 20px; }
+.hero-steps em { color: var(--accent); font-style: normal; }
+
+/* ── Compact dropzone (sidebar) ───────────────────────────── */
+.dropzone-compact { padding: 18px 12px; }
+
+/* Sidebar: keep file-info chip's slot reserved so the nav buttons don't jump */
+.sidebar .file-info {
+  display: flex;
+  visibility: hidden;
+  margin-top: 10px;
+}
+.sidebar .file-info.visible { visibility: visible; }
+.dropzone-compact .dropzone-icon {
+  width: 36px; height: 36px; margin: 0 auto 8px;
+}
+.dropzone-compact .dropzone-icon svg { width: 18px; height: 18px; }
+.dropzone-compact p { font-size: .8rem; }
+.dropzone-compact small { font-size: .7rem; }
+
 /* ── Header ───────────────────────────────────────────────── */
 header {
   display: flex;

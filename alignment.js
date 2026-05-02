@@ -263,6 +263,8 @@
     document.addEventListener('mousemove', onDocMouseMove);
     document.addEventListener('mouseup', onDocMouseUp);
 
+    setupMapSearch();
+
     // Measure tool button
     const MeasureControl = L.Control.extend({
       options: { position: 'topleft' },
@@ -276,6 +278,59 @@
       },
     });
     map.addControl(new MeasureControl());
+  }
+
+  // ── Map search (lat,lon or place name via Nominatim) ────────────
+  function parseLatLon(s) {
+    // Accept: "lat, lon" or "lat lon" with optional whitespace.
+    const m = s.match(/^\s*(-?\d+(?:\.\d+)?)\s*[, ]\s*(-?\d+(?:\.\d+)?)\s*$/);
+    if (!m) return null;
+    const lat = parseFloat(m[1]), lon = parseFloat(m[2]);
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return null;
+    return { lat, lon };
+  }
+
+  async function geocode(query) {
+    const url = 'https://nominatim.openstreetmap.org/search?format=json&limit=1&q=' +
+                encodeURIComponent(query);
+    const resp = await fetch(url, { headers: { 'Accept-Language': 'en' } });
+    if (!resp.ok) throw new Error('Search failed');
+    const data = await resp.json();
+    if (!data.length) throw new Error('No results');
+    return { lat: parseFloat(data[0].lat), lon: parseFloat(data[0].lon) };
+  }
+
+  function setupMapSearch() {
+    const wrap = document.getElementById('map-search');
+    const input = document.getElementById('map-search-input');
+    const btn = document.getElementById('map-search-btn');
+    if (!wrap || !input || !btn) return;
+
+    async function run() {
+      const q = input.value.trim();
+      if (!q) return;
+      wrap.classList.remove('error');
+      const direct = parseLatLon(q);
+      if (direct) {
+        map.setView([direct.lat, direct.lon], Math.max(map.getZoom(), 17));
+        return;
+      }
+      wrap.classList.add('searching');
+      try {
+        const r = await geocode(q);
+        map.setView([r.lat, r.lon], 17);
+      } catch (_) {
+        wrap.classList.add('error');
+        setTimeout(() => wrap.classList.remove('error'), 1500);
+      } finally {
+        wrap.classList.remove('searching');
+      }
+    }
+
+    btn.addEventListener('click', run);
+    input.addEventListener('keydown', e => { if (e.key === 'Enter') run(); });
+    L.DomEvent.disableClickPropagation(wrap);
+    L.DomEvent.disableScrollPropagation(wrap);
   }
 
   // ── Status / loading ────────────────────────────────────────────

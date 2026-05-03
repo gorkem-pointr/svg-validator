@@ -4,7 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>SVG Validator</title>
-  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230d0f18'/%3E%3Cpath d='M16 4 L28 8 L28 18 C28 24 22 29 16 31 C10 29 4 24 4 18 L4 8 Z' fill='none' stroke='%232563eb' stroke-width='2' stroke-linejoin='round'/%3E%3Cpolyline points='10,16 14,21 22,12' fill='none' stroke='%232563eb' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
+  <link rel="icon" type="image/svg+xml" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 4 L28 8 L28 18 C28 24 22 29 16 31 C10 29 4 24 4 18 L4 8 Z' fill='none' stroke='%232563eb' stroke-width='2' stroke-linejoin='round'/%3E%3Cpolyline points='10,16 14,21 22,12' fill='none' stroke='%232563eb' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E">
   <script src="https://unpkg.com/lucide@latest/dist/umd/lucide.js"></script>
   <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -18,7 +18,7 @@
        Sidebar (left): logo, file upload, nav
        ══════════════════════════════════════════════════════════ -->
   <aside class="sidebar">
-    <div class="sidebar-header">
+    <button id="sidebarHome" class="sidebar-header" type="button" title="Go to home">
       <div class="logo">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/>
@@ -28,7 +28,7 @@
         <h1>SVG Validator</h1>
         <span class="badge">v1.0</span>
       </div>
-    </div>
+    </button>
 
     <div class="sidebar-section">
       <div class="sidebar-section-title">SVG File</div>
@@ -62,7 +62,7 @@
     </div>
 
     <nav class="sidebar-nav">
-      <button id="navValidate" class="nav-btn" type="button">
+      <button id="navValidate" class="nav-btn" type="button" disabled title="Load an SVG first">
         <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
           <polyline points="20 6 9 17 4 12"/>
         </svg>
@@ -88,7 +88,7 @@
 
     <!-- ── Home view ────────────────────────────────────────── -->
     <section id="homeView" class="view view-narrow">
-      <div class="hero">
+      <div class="home-intro">
         <h1>SVG Validator &amp; Alignment</h1>
         <p class="lead">
           A browser-based toolkit for working with Vusion / Pointr floor-plan SVGs.
@@ -96,28 +96,28 @@
           its anchor points onto a real-world map.
         </p>
 
-        <div class="hero-grid">
-          <div class="hero-card">
-            <div class="hero-card-icon">
+        <div class="home-grid">
+          <button id="homeValidateBtn" class="home-card home-card-btn" type="button" disabled title="Load an SVG first">
+            <div class="home-card-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <polyline points="20 6 9 17 4 12"/>
               </svg>
             </div>
             <h3>Validate</h3>
             <p>Check the SVG's internal structure and its consistency with the geolocation API.</p>
-          </div>
-          <div class="hero-card">
-            <div class="hero-card-icon">
+          </button>
+          <button id="homeAlignBtn" class="home-card home-card-btn" type="button" disabled title="Load an SVG first">
+            <div class="home-card-icon">
               <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                 <path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/>
               </svg>
             </div>
             <h3>Align</h3>
             <p>Drop the SVG onto an OpenStreetMap tile, drag the anchors, save the corrected lat/lon back into the file.</p>
-          </div>
+          </button>
         </div>
 
-        <div class="hero-steps">
+        <div class="home-steps">
           <strong>Get started:</strong>
           <ol>
             <li>Pick an SVG in the sidebar.</li>

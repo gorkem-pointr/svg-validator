@@ -428,7 +428,7 @@ class CheckRegistry {
             const metersPerPixel_line = meterLength / pixelLength;
 
             // Compare it to anchor based scale
-            lineDetail = `Scale from line object: ${metersPerPixel_line.toFixed(4)} m/px\nScale from anchors: ${metersPerPixel_anchors.toFixed(4)} m/px`;
+            lineDetail = `Scale from line object: ${metersPerPixel_line.toFixed(4)} m/px\nScale from anchors: ${metersPerPixel_anchors.toFixed(4)} m/px\n`;
           }
           
           // Compute average modular size in pixels using stored modulars in shared.svgModulars
@@ -453,7 +453,7 @@ class CheckRegistry {
           const maxSide = Math.max(avgW, avgH);
 
           // Give details in 3 lines
-          const detail = `${lineDetail}\nAvg modular using anchor scale: ${avgW.toFixed(2)}m × ${avgH.toFixed(2)}m (${sizes.length} rects)`;
+          const detail = `${lineDetail}Avg modular using anchor scale: ${avgW.toFixed(2)}m × ${avgH.toFixed(2)}m (${sizes.length} rects)`;
           return { pass: false, message: `${detail}` };
         } catch (err) {
           return { pass: false, message: `Error checking anchor coordinates: ${err.message}` };
@@ -779,8 +779,19 @@ class CheckRunner {
     if (name === 'align' && window.AlignmentView) window.AlignmentView.enter();
     else if (window.AlignmentView) window.AlignmentView.exit();
   }
-  navValidate.addEventListener('click', () => showView('validate'));
+  navValidate.addEventListener('click', () => { if (!navValidate.disabled) showView('validate'); });
   navAlign.addEventListener('click', () => { if (!navAlign.disabled) showView('align'); });
+  const sidebarHome = document.getElementById('sidebarHome');
+  if (sidebarHome) sidebarHome.addEventListener('click', () => showView('home'));
+
+  const homeValidateBtn = document.getElementById('homeValidateBtn');
+  const homeAlignBtn    = document.getElementById('homeAlignBtn');
+  if (homeValidateBtn) homeValidateBtn.addEventListener('click', () => {
+    if (!homeValidateBtn.disabled) showView('validate');
+  });
+  if (homeAlignBtn) homeAlignBtn.addEventListener('click', () => {
+    if (!homeAlignBtn.disabled) showView('align');
+  });
 
   // ── File Handling ────────────────────────────────────────────
   fileInput.addEventListener('change', e => loadFile(e.target.files[0]));
@@ -820,8 +831,12 @@ class CheckRunner {
       if (window.AlignmentView) {
         window.AlignmentView.setSvg(text, file.name);
       }
+      navValidate.disabled = false;
+      navValidate.removeAttribute('title');
       navAlign.disabled = false;
       navAlign.removeAttribute('title');
+      if (homeValidateBtn) { homeValidateBtn.disabled = false; homeValidateBtn.removeAttribute('title'); }
+      if (homeAlignBtn)    { homeAlignBtn.disabled = false;    homeAlignBtn.removeAttribute('title'); }
     };
     reader.readAsText(file);
   }
@@ -836,9 +851,13 @@ class CheckRunner {
     if (window.AlignmentView) {
       window.AlignmentView.clear();
     }
+    navValidate.disabled = true;
+    navValidate.title = 'Load an SVG first';
     navAlign.disabled = true;
     navAlign.title = 'Load an SVG first';
-    if (!alignmentView.hidden) showView('home');
+    if (homeValidateBtn) { homeValidateBtn.disabled = true; homeValidateBtn.title = 'Load an SVG first'; }
+    if (homeAlignBtn)    { homeAlignBtn.disabled = true;    homeAlignBtn.title = 'Load an SVG first'; }
+    if (!alignmentView.hidden || !validateView.hidden) showView('home');
   }
 
   function formatBytes(b) {

@@ -108,12 +108,20 @@
 
 #alignView #map-search {
   position: absolute; top: 12px; right: 12px; z-index: 1000;
-  display: flex; gap: 0;
+  display: flex; gap: 4px; align-items: center;
   background: rgba(26,26,46,0.92);
   border-radius: 6px;
   padding: 4px;
   box-shadow: 0 2px 8px rgba(0,0,0,0.4);
 }
+#alignView #map-locate-btn {
+  background: transparent; border: none; cursor: pointer;
+  color: #ccc; padding: 4px 6px; border-radius: 4px;
+  display: flex; align-items: center; justify-content: center;
+}
+#alignView #map-locate-btn:hover { color: #fff; background: #1b998b; }
+#alignView #map-locate-btn[hidden] { display: none; }
+#alignView #map-locate-btn svg { width: 16px; height: 16px; stroke: currentColor; }
 #alignView #map-search input {
   background: transparent; border: none; outline: none;
   color: #eee; font-size: 13px;

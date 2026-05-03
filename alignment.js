@@ -304,7 +304,29 @@
     const wrap = document.getElementById('map-search');
     const input = document.getElementById('map-search-input');
     const btn = document.getElementById('map-search-btn');
+    const locateBtn = document.getElementById('map-locate-btn');
     if (!wrap || !input || !btn) return;
+
+    if (locateBtn) {
+      locateBtn.addEventListener('click', () => {
+        if (anchors.length < 2 || !svgWidth || !svgHeight) return;
+        // Build bounds from the four SVG corners (not anchors) so the zoom
+        // depends on the SVG size, not on how close the anchors happen to
+        // sit on it. pad(0.5) expands the bbox 2× → SVG covers 1/2 linearly
+        // ≈ 1/4 of the viewport area.
+        const corners = [
+          svgCartToLatLng(0, 0),
+          svgCartToLatLng(svgWidth, 0),
+          svgCartToLatLng(0, svgHeight),
+          svgCartToLatLng(svgWidth, svgHeight),
+        ].filter(Boolean);
+        if (corners.length < 2) return;
+        const svgBounds = L.latLngBounds(corners);
+        const zoom = map.getBoundsZoom(svgBounds.pad(0.5));
+        const center = svgCartToLatLng(svgWidth / 2, svgHeight / 2);
+        if (center) map.setView(center, zoom);
+      });
+    }
 
     async function run() {
       const q = input.value.trim();
@@ -338,6 +360,11 @@
     if (!statusEl) return;
     statusEl.textContent = msg || '';
     statusEl.style.color = isError ? '#e74c3c' : '#aaa';
+  }
+
+  function updateLocateBtnVisibility() {
+    const btn = document.getElementById('map-locate-btn');
+    if (btn) btn.hidden = anchors.length < 2;
   }
 
   function clearOverlay() {
@@ -413,12 +440,22 @@
     renderAnchorTable();
     renderScaleTable();
 
-    if (anchors.length >= 2) {
+    const fitToAnchors = () => {
+      if (anchors.length < 2) return;
       const bounds = L.latLngBounds(anchors.map(a => [a.lat, a.lon]));
       map.fitBounds(bounds.pad(0.5));
-    }
+    };
+    fitToAnchors();
+    // Re-fit on the next animation frame in case the map container's
+    // measured size was stale (layout race after the view became visible).
+    requestAnimationFrame(() => {
+      map.invalidateSize();
+      fitToAnchors();
+      updateOverlayTransform();
+    });
 
     updateOverlayTransform();
+    updateLocateBtnVisibility();
     setStatus(`Loaded ${currentFilename}`);
     if (emptyEl) emptyEl.style.display = 'none';
   }
@@ -426,6 +463,7 @@
   function unloadView() {
     clearOverlay();
     anchors = [];
+    updateLocateBtnVisibility();
     scaleLines = [];
     cleanedSvgText = '';
     svgWidth = svgHeight = 0;
@@ -552,8 +590,34 @@
   }
 
   // ── Affine transform ────────────────────────────────────────────
+  // Forward affine: SVG cartesian (cx, cy) → geographic LatLng, using the
+  // current two-anchor transform.
+  function svgCartToLatLng(cx, cy) {
+    if (anchors.length < 2) return null;
+    const a0 = anchors[0], a1 = anchors[1];
+    const p0 = map.latLngToLayerPoint([a0.lat, a0.lon]);
+    const p1 = map.latLngToLayerPoint([a1.lat, a1.lon]);
+    const dsx = a1.cx - a0.cx, dsy = a1.cy - a0.cy;
+    const dtx = p1.x - p0.x, dty = p1.y - p0.y;
+    const srcLen = Math.sqrt(dsx * dsx + dsy * dsy);
+    const tgtLen = Math.sqrt(dtx * dtx + dty * dty);
+    if (srcLen === 0 || tgtLen === 0) return null;
+    const scale = tgtLen / srcLen;
+    const rotation = Math.atan2(dty, dtx) - Math.atan2(dsy, dsx);
+    const cosR = Math.cos(rotation), sinR = Math.sin(rotation);
+    const dx = cx - a0.cx, dy = cy - a0.cy;
+    const px = p0.x + scale * (cosR * dx - sinR * dy);
+    const py = p0.y + scale * (sinR * dx + cosR * dy);
+    return map.layerPointToLatLng([px, py]);
+  }
+
   function pixelToCart(px, py) {
-    if (anchors.length < 2) return { x: px, y: py };
+    if (anchors.length < 2) {
+      // SVG is in no-anchor mode: invert the centered/25% display transform.
+      if (!svgWidth || !svgHeight) return { x: px, y: py };
+      const t = noAnchorTransformParams();
+      return { x: (px - t.tx) / t.pxScale, y: (py - t.ty) / t.pxScale };
+    }
     const a0 = anchors[0], a1 = anchors[1];
     const dsx = a1.cx - a0.cx, dsy = a1.cy - a0.cy;
     const p0 = map.latLngToLayerPoint([a0.lat, a0.lon]);
@@ -624,14 +688,19 @@
   // No anchors: SVG is pinned to the screen, not the map. Always centered,
   // sized to cover ~25% of the current viewport area. Reapplied on each
   // pan/zoom so it appears fixed while the map slides underneath.
-  function updateOverlayNoAnchors() {
-    if (!svgOverlayEl || !svgWidth || !svgHeight) return;
+  function noAnchorTransformParams() {
     const size = map.getSize();
     const pxScale = 0.5 * Math.min(size.x / svgWidth, size.y / svgHeight);
     const center = map.latLngToLayerPoint(map.getCenter());
     const tx = center.x - (svgWidth * pxScale) / 2;
     const ty = center.y - (svgHeight * pxScale) / 2;
-    svgOverlayEl.style.transform = `matrix(${pxScale}, 0, 0, ${pxScale}, ${tx}, ${ty})`;
+    return { pxScale, tx, ty };
+  }
+
+  function updateOverlayNoAnchors() {
+    if (!svgOverlayEl || !svgWidth || !svgHeight) return;
+    const t = noAnchorTransformParams();
+    svgOverlayEl.style.transform = `matrix(${t.pxScale}, 0, 0, ${t.pxScale}, ${t.tx}, ${t.ty})`;
   }
 
   function updateScaleInfo(_pxScale, rotation) {
@@ -738,6 +807,7 @@
       addingAnchor = false;
       map.getContainer().style.cursor = '';
       anchorEditStatusEl.textContent = `Added "${label}"`;
+      updateLocateBtnVisibility();
       return;
     }
     if (!measuring) return;
@@ -862,8 +932,8 @@
       // otherwise defer until enter().
       const view = document.getElementById('alignmentView');
       if (initialized && view && !view.hidden) {
+        map.invalidateSize();
         loadIntoView();
-        setTimeout(() => map.invalidateSize(), 0);
       }
     },
     clear() {
@@ -873,11 +943,12 @@
     },
     enter() {
       init();
-      // Leaflet needs a size recalc once the tab becomes visible.
-      setTimeout(() => {
+      // Wait for the browser to apply the layout change (view became visible)
+      // before measuring/drawing — otherwise fitBounds runs on a 0-sized map.
+      requestAnimationFrame(() => {
         map.invalidateSize();
         if (originalSvgText && !cleanedSvgText) loadIntoView();
-      }, 0);
+      });
     },
     exit() { /* tab visibility is handled by the tab controller */ },
     hasSvg() { return !!originalSvgText; },

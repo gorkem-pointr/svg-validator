@@ -241,6 +241,13 @@
           <div id="alignMap"></div>
           <div id="align-empty">No SVG loaded</div>
           <div id="map-search">
+            <button id="map-locate-btn" type="button" title="Re-center on SVG" hidden>
+              <svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="3"/>
+                <line x1="12" y1="2" x2="12" y2="5"/><line x1="12" y1="19" x2="12" y2="22"/>
+                <line x1="2" y1="12" x2="5" y2="12"/><line x1="19" y1="12" x2="22" y2="12"/>
+              </svg>
+            </button>
             <input type="text" id="map-search-input"
                    placeholder="Search place or lat,lon" autocomplete="off" />
             <button id="map-search-btn" type="button" title="Search">

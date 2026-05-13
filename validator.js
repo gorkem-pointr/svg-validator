@@ -124,16 +124,21 @@ function findOverlaps(doc, elements, iouThreshold = 0.1) {
   for (const el of elements) {
     const id = el.getAttribute('id');
     if (!id) continue;
-    
+
     const cloned = clonedById.get(id);
     if (!cloned) continue;
-    
+
+    const aisleName = el.parentNode && el.parentNode.getAttribute
+      ? (el.parentNode.getAttribute('id') || '')
+      : '';
+    const label = aisleName ? `${aisleName}_${id}` : id;
+
     try {
       const localBBox = cloned.getBBox();
       const ctm = cloned.getCTM();
       const bbox = transformBBox(localBBox, ctm);
       if (bbox.width > 0 && bbox.height > 0) {
-        bboxes.push({ id, bbox });
+        bboxes.push({ label, bbox });
       }
     } catch (e) {
       // skip elements that cannot be measured (e.g. invisible or degenerate)
@@ -147,7 +152,7 @@ function findOverlaps(doc, elements, iouThreshold = 0.1) {
     for (let j = i + 1; j < bboxes.length; j++) {
       const iou = computeIoU(bboxes[i].bbox, bboxes[j].bbox);
       if (iou > iouThreshold) {
-        overlaps.push(`"${bboxes[i].id}" & "${bboxes[j].id}" (IoU: ${(iou * 100).toFixed(1)}%)`);
+        overlaps.push(`"${bboxes[i].label}" & "${bboxes[j].label}" (IoU: ${(iou * 100).toFixed(1)}%)`);
       }
     }
   }

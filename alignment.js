@@ -110,11 +110,13 @@
     for (const a of anchors) {
       const escapedLabel = a.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
       const re = new RegExp(
-        '(<g\\s+id=")([^"]+)(">\\s*<(?:circle|ellipse)\\s+id="' + escapedLabel + '")'
+        '(<g\\s+id=")([^"]+)(">\\s*<(?:circle|ellipse)\\s+id="' + escapedLabel + '"[^>]*?\\s+cx=")([^"]+)("\\s+cy=")([^"]+)(")'
       );
       const newCoord = `${a.lat},${a.lon}`;
+      const newCx = `${a.cx ?? 0}`;
+      const newCy = `${a.cy ?? 0}`;
       if (re.test(out)) {
-        out = out.replace(re, `$1${newCoord}$3`);
+        out = out.replace(re, `$1${newCoord}$3${newCx}$5${newCy}$7`);
         continue;
       }
       // New anchor — insert into GPS group.
@@ -441,6 +443,10 @@
     renderScaleTable();
 
     const fitToAnchors = () => {
+      if (anchors.length === 1) {
+        map.setView([anchors[0].lat, anchors[0].lon], map.getZoom());
+        return;
+      }
       if (anchors.length < 2) return;
       const bounds = L.latLngBounds(anchors.map(a => [a.lat, a.lon]));
       map.fitBounds(bounds.pad(0.5));
@@ -612,6 +618,17 @@
   }
 
   function pixelToCart(px, py) {
+    if (anchors.length === 1) {
+      // Single-anchor mode: invert the pin-to-anchor/25% display transform.
+      if (!svgWidth || !svgHeight) return { x: px, y: py };
+      const size = map.getSize();
+      const pxScale = 0.5 * Math.min(size.x / svgWidth, size.y / svgHeight);
+      const a = anchors[0];
+      const p = map.latLngToLayerPoint([a.lat, a.lon]);
+      const tx = p.x - pxScale * a.cx;
+      const ty = p.y - pxScale * a.cy;
+      return { x: (px - tx) / pxScale, y: (py - ty) / pxScale };
+    }
     if (anchors.length < 2) {
       // SVG is in no-anchor mode: invert the centered/25% display transform.
       if (!svgWidth || !svgHeight) return { x: px, y: py };
@@ -666,6 +683,7 @@
 
   function updateOverlayTransform() {
     if (!svgOverlayEl) return;
+    if (anchors.length === 1) { updateOverlaySingleAnchor(); return; }
     if (anchors.length < 2) { updateOverlayNoAnchors(); return; }
     const a0 = anchors[0], a1 = anchors[1];
     const dsx = a1.cx - a0.cx, dsy = a1.cy - a0.cy;
@@ -695,6 +713,20 @@
     const tx = center.x - (svgWidth * pxScale) / 2;
     const ty = center.y - (svgHeight * pxScale) / 2;
     return { pxScale, tx, ty };
+  }
+
+  // One anchor: SVG is pinned to the map at that anchor's lat/lon, scaled
+  // to ~25% of the viewport (same scale as the no-anchor case). The
+  // anchor's cx/cy maps to its lat/lon layer point.
+  function updateOverlaySingleAnchor() {
+    if (!svgOverlayEl || !svgWidth || !svgHeight) return;
+    const size = map.getSize();
+    const pxScale = 0.5 * Math.min(size.x / svgWidth, size.y / svgHeight);
+    const a = anchors[0];
+    const p = map.latLngToLayerPoint([a.lat, a.lon]);
+    const tx = p.x - pxScale * a.cx;
+    const ty = p.y - pxScale * a.cy;
+    svgOverlayEl.style.transform = `matrix(${pxScale}, 0, 0, ${pxScale}, ${tx}, ${ty})`;
   }
 
   function updateOverlayNoAnchors() {

@@ -1,0 +1,42 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: svg-validator
+  namespace: svg-validator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: svg-validator
+  template:
+    metadata:
+      labels:
+        app: svg-validator
+    spec:
+      imagePullSecrets:
+      - name: regcred
+      containers:
+      - name: svg-validator
+        image: ${IMAGE}
+        imagePullPolicy: Always
+        ports:
+        - containerPort: 80
+        resources:
+          requests:
+            memory: "32Mi"
+            cpu: "10m"
+          limits:
+            memory: "128Mi"
+            cpu: "100m"
+        readinessProbe:
+          httpGet:
+            path: /index.html
+            port: 80
+          initialDelaySeconds: 2
+          periodSeconds: 10
+        livenessProbe:
+          httpGet:
+            path: /index.html
+            port: 80
+          initialDelaySeconds: 10
+          periodSeconds: 30

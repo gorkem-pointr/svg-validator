@@ -1,0 +1,6 @@
+.env
+.env.*
+!.env.example
+deployment/.env
+.DS_Store
+node_modules/

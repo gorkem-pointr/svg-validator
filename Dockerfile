@@ -8,5 +8,6 @@ COPY alignment.css /usr/share/nginx/html/
 COPY api.js /usr/share/nginx/html/
 COPY alignment.js /usr/share/nginx/html/
 COPY validator.js /usr/share/nginx/html/
+COPY VERSION /usr/share/nginx/html/
 
 EXPOSE 80

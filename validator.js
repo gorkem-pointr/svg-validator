@@ -38,41 +38,129 @@ function haversineDistance(lat1, lon1, lat2, lon2) {
 }
 
 /**
- * Transform an SVG local bounding box through a CTM to get the axis-aligned
- * bounding box in the SVG viewport coordinate space.
+ * Axis-aligned bounding box (in viewport space) of an element's local bbox
+ * transformed through its CTM. Used as a cheap pre-filter before raster IoU.
  */
-function transformBBox(bbox, ctm) {
-  if (!ctm) return bbox;
+function transformedAABB(bbox, ctm) {
+  if (!ctm) return { x: bbox.x, y: bbox.y, width: bbox.width, height: bbox.height };
   const corners = [
     { x: bbox.x,              y: bbox.y },
     { x: bbox.x + bbox.width, y: bbox.y },
-    { x: bbox.x,              y: bbox.y + bbox.height },
     { x: bbox.x + bbox.width, y: bbox.y + bbox.height },
+    { x: bbox.x,              y: bbox.y + bbox.height },
   ];
-  const tx = corners.map(p => ctm.a * p.x + ctm.c * p.y + ctm.e);
-  const ty = corners.map(p => ctm.b * p.x + ctm.d * p.y + ctm.f);
-  return {
-    x:      Math.min(...tx),
-    y:      Math.min(...ty),
-    width:  Math.max(...tx) - Math.min(...tx),
-    height: Math.max(...ty) - Math.min(...ty),
-  };
+  const xs = corners.map(p => ctm.a * p.x + ctm.c * p.y + ctm.e);
+  const ys = corners.map(p => ctm.b * p.x + ctm.d * p.y + ctm.f);
+  const minX = Math.min(...xs), maxX = Math.max(...xs);
+  const minY = Math.min(...ys), maxY = Math.max(...ys);
+  return { x: minX, y: minY, width: maxX - minX, height: maxY - minY };
+}
+
+function aabbsOverlap(a, b) {
+  return !(a.x + a.width  <= b.x || b.x + b.width  <= a.x ||
+           a.y + a.height <= b.y || b.y + b.height <= a.y);
 }
 
 /**
- * Intersection-over-Union for two axis-aligned bounding boxes.
+ * Serialize a shape as a standalone SVG with viewBox = its transformed AABB,
+ * so an <img> loading the result renders the shape in viewport space. The
+ * element's own transform is replaced with its CTM (already includes the
+ * element's local transform) on a wrapper <g>.
  */
-function computeIoU(a, b) {
-  const ix1 = Math.max(a.x, b.x);
-  const iy1 = Math.max(a.y, b.y);
-  const ix2 = Math.min(a.x + a.width, b.x + b.width);
-  const iy2 = Math.min(a.y + a.height, b.y + b.height);
-  const iw = Math.max(0, ix2 - ix1);
-  const ih = Math.max(0, iy2 - iy1);
-  const intersection = iw * ih;
-  if (intersection === 0) return 0;
-  const union = a.width * a.height + b.width * b.height - intersection;
-  return union > 0 ? intersection / union : 0;
+function shapeToSvgString(shape, aabb, ctm) {
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const root = document.createElementNS(svgNS, 'svg');
+  root.setAttribute('xmlns', svgNS);
+  root.setAttribute('viewBox', `${aabb.x} ${aabb.y} ${aabb.width} ${aabb.height}`);
+  root.setAttribute('width',  String(Math.max(1, aabb.width)));
+  root.setAttribute('height', String(Math.max(1, aabb.height)));
+
+  const inner = shape.cloneNode(true);
+  inner.removeAttribute('transform');  // CTM already includes the element's own transform
+  inner.setAttribute('fill', 'black');
+  inner.setAttribute('stroke', 'none');
+  inner.removeAttribute('style');
+
+  if (ctm) {
+    const g = document.createElementNS(svgNS, 'g');
+    g.setAttribute('transform', `matrix(${ctm.a} ${ctm.b} ${ctm.c} ${ctm.d} ${ctm.e} ${ctm.f})`);
+    g.appendChild(inner);
+    root.appendChild(g);
+  } else {
+    root.appendChild(inner);
+  }
+
+  return new XMLSerializer().serializeToString(root);
+}
+
+function loadSvgImage(svgString) {
+  return new Promise((resolve, reject) => {
+    const blob = new Blob([svgString], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const img = new Image();
+    img.onload  = () => { URL.revokeObjectURL(url); resolve(img); };
+    img.onerror = (e) => { URL.revokeObjectURL(url); reject(e); };
+    img.src = url;
+  });
+}
+
+function countOpaquePixels(canvas) {
+  const ctx = canvas.getContext('2d');
+  const data = ctx.getImageData(0, 0, canvas.width, canvas.height).data;
+  let n = 0;
+  for (let i = 3; i < data.length; i += 4) if (data[i] > 0) n++;
+  return n;
+}
+
+/**
+ * Pixel-based IoU between two prerendered shapes. Each `shape` is
+ * { img, aabb } where img is an <img> loaded from shapeToSvgString and
+ * aabb is the viewport-space AABB. Renders both into a tight joint canvas
+ * and counts pixels.
+ */
+function rasterIoU(shapeA, shapeB, resolution = 256) {
+  const a = shapeA.aabb, b = shapeB.aabb;
+  if (!aabbsOverlap(a, b)) return 0;
+
+  const ux = Math.min(a.x, b.x);
+  const uy = Math.min(a.y, b.y);
+  const uw = Math.max(a.x + a.width,  b.x + b.width)  - ux;
+  const uh = Math.max(a.y + a.height, b.y + b.height) - uy;
+
+  const scale = resolution / Math.max(uw, uh);
+  const cw = Math.max(1, Math.round(uw * scale));
+  const ch = Math.max(1, Math.round(uh * scale));
+
+  function drawShape(img, aabb) {
+    const canvas = document.createElement('canvas');
+    canvas.width = cw;
+    canvas.height = ch;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(
+      img,
+      (aabb.x - ux) * scale,
+      (aabb.y - uy) * scale,
+      aabb.width  * scale,
+      aabb.height * scale
+    );
+    return canvas;
+  }
+
+  const canvasA = drawShape(shapeA.img, a);
+  const canvasB = drawShape(shapeB.img, b);
+
+  const inter = document.createElement('canvas');
+  inter.width = cw; inter.height = ch;
+  const ictx = inter.getContext('2d');
+  ictx.drawImage(canvasA, 0, 0);
+  ictx.globalCompositeOperation = 'source-in';
+  ictx.drawImage(canvasB, 0, 0);
+
+  const cA = countOpaquePixels(canvasA);
+  const cB = countOpaquePixels(canvasB);
+  const cI = countOpaquePixels(inter);
+  const union = cA + cB - cI;
+  return union > 0 ? cI / union : 0;
 }
 
 function extractSvgModularNames(geolocation) {
@@ -105,7 +193,104 @@ function getSectionById(doc, id) {
 }
 
 
-function findOverlaps(doc, elements, iouThreshold = 0.1) {
+/**
+ * Find scale-reference shapes in a GPS group. Accepts <line> and <path>
+ * children whose id (after trimming) matches "<number>m" (e.g. "5m", "5.08m").
+ * Returns an array of { id, meters, x1, y1, x2, y2 } in SVG-local coordinates.
+ * Used by both the validator checks and the alignment view so the two stay
+ * in sync.
+ */
+function findScaleShapes(gpsGroup) {
+  const idRe = /^([\d.]+)m$/;
+  const out = [];
+  if (!gpsGroup) return out;
+
+  for (const el of gpsGroup.querySelectorAll('line, path')) {
+    const id = (el.getAttribute('id') || '').trim();
+    const idMatch = idRe.exec(id);
+    if (!idMatch) continue;
+    const meters = parseFloat(idMatch[1]);
+    if (isNaN(meters)) continue;
+
+    const tag = el.tagName.toLowerCase();
+    if (tag === 'line') {
+      const x1 = parseFloat(el.getAttribute('x1'));
+      const y1 = parseFloat(el.getAttribute('y1'));
+      const x2 = parseFloat(el.getAttribute('x2'));
+      const y2 = parseFloat(el.getAttribute('y2'));
+      if ([x1, y1, x2, y2].some(isNaN)) continue;
+      out.push({ id, meters, x1, y1, x2, y2 });
+    } else {
+      // <path> — accept simple "M x y H x2" or "M x1 y1 L x2 y2" forms.
+      const d = el.getAttribute('d') || '';
+      const mh = /^M([\d.]+)\s+([\d.]+)\s*[Hh]([\d.]+)/.exec(d);
+      const ml = /^M([\d.]+)\s+([\d.]+)\s*[Ll]([\d.]+)\s+([\d.]+)/.exec(d);
+      if (mh) {
+        const x1 = parseFloat(mh[1]), y1 = parseFloat(mh[2]), x2 = parseFloat(mh[3]);
+        out.push({ id, meters, x1, y1, x2, y2: y1 });
+      } else if (ml) {
+        out.push({
+          id, meters,
+          x1: parseFloat(ml[1]), y1: parseFloat(ml[2]),
+          x2: parseFloat(ml[3]), y2: parseFloat(ml[4]),
+        });
+      }
+    }
+  }
+  return out;
+}
+
+
+/**
+ * Return the center (cx, cy) of an SVG shape in its own local coordinate space.
+ * Supports <circle>, <ellipse>, <rect>, and <path>. Returns null if the shape
+ * type is unsupported or coordinates can't be derived.
+ */
+function getShapeCenter(shape) {
+  const tag = shape.tagName.toLowerCase();
+
+  if (tag === 'circle' || tag === 'ellipse') {
+    const cx = parseFloat(shape.getAttribute('cx'));
+    const cy = parseFloat(shape.getAttribute('cy'));
+    if (isNaN(cx) || isNaN(cy)) return null;
+    return { cx, cy };
+  }
+
+  if (tag === 'rect') {
+    const x = parseFloat(shape.getAttribute('x') || '0');
+    const y = parseFloat(shape.getAttribute('y') || '0');
+    const w = parseFloat(shape.getAttribute('width'));
+    const h = parseFloat(shape.getAttribute('height'));
+    if (isNaN(x) || isNaN(y) || isNaN(w) || isNaN(h)) return null;
+    return { cx: x + w / 2, cy: y + h / 2 };
+  }
+
+  if (tag === 'path') {
+    // getBBox() requires a laid-out SVG element, so mount a clone off-screen.
+    const container = document.createElement('div');
+    container.style.cssText = 'position:absolute;left:-99999px;top:-99999px;width:1px;height:1px;overflow:hidden;';
+    const svgNS = 'http://www.w3.org/2000/svg';
+    const svg = document.createElementNS(svgNS, 'svg');
+    const cloned = shape.cloneNode(true);
+    svg.appendChild(cloned);
+    container.appendChild(svg);
+    document.body.appendChild(container);
+    try {
+      const b = cloned.getBBox();
+      if (b.width === 0 && b.height === 0) return null;
+      return { cx: b.x + b.width / 2, cy: b.y + b.height / 2 };
+    } catch (e) {
+      return null;
+    } finally {
+      document.body.removeChild(container);
+    }
+  }
+
+  return null;
+}
+
+
+async function findOverlaps(doc, elements, iouThreshold = 0.1) {
   // Clone SVG into a hidden DOM element so getBBox() and getCTM() work
   // for both <rect> and <path> elements, accounting for group transforms.
   const container = document.createElement('div');
@@ -120,7 +305,7 @@ function findOverlaps(doc, elements, iouThreshold = 0.1) {
     .map(el => [el.getAttribute('id'), el])
   );
 
-  const bboxes = [];
+  const shapes = [];
   for (const el of elements) {
     const id = el.getAttribute('id');
     if (!id) continue;
@@ -136,23 +321,29 @@ function findOverlaps(doc, elements, iouThreshold = 0.1) {
     try {
       const localBBox = cloned.getBBox();
       const ctm = cloned.getCTM();
-      const bbox = transformBBox(localBBox, ctm);
-      if (bbox.width > 0 && bbox.height > 0) {
-        bboxes.push({ label, bbox });
-      }
+      const aabb = transformedAABB(localBBox, ctm);
+      if (aabb.width <= 0 || aabb.height <= 0) continue;
+      const svgString = shapeToSvgString(cloned, aabb, ctm);
+      shapes.push({ label, aabb, svgString });
     } catch (e) {
       // skip elements that cannot be measured (e.g. invisible or degenerate)
     }
   }
   document.body.removeChild(container);
 
-  // Check every pair for IoU > threshold
+  // Rasterize each shape once into its own <img>. Each pair is then a
+  // small canvas-composite operation. Generic across rect / path / circle
+  // / ellipse / polygon — the browser handles the geometry.
+  await Promise.all(shapes.map(async (s) => {
+    s.img = await loadSvgImage(s.svgString);
+  }));
+
   const overlaps = [];
-  for (let i = 0; i < bboxes.length; i++) {
-    for (let j = i + 1; j < bboxes.length; j++) {
-      const iou = computeIoU(bboxes[i].bbox, bboxes[j].bbox);
+  for (let i = 0; i < shapes.length; i++) {
+    for (let j = i + 1; j < shapes.length; j++) {
+      const iou = rasterIoU(shapes[i], shapes[j]);
       if (iou > iouThreshold) {
-        overlaps.push(`"${bboxes[i].label}" & "${bboxes[j].label}" (IoU: ${(iou * 100).toFixed(1)}%)`);
+        overlaps.push(`"${shapes[i].label}" & "${shapes[j].label}" (IoU: ${(iou * 100).toFixed(1)}%)`);
       }
     }
   }
@@ -215,9 +406,41 @@ class CheckRegistry {
       }
     },
     {
+      id: 'svg-anchor-ids',
+      name: 'Anchor lat/lon coordinates',
+      description: 'Each anchor <g> id must encode "lat,lon"',
+      severity: 'error',
+      async run(doc) {
+        try {
+          const gps = getSectionById(doc, section_ids.gps);
+          const groups = Array.from(gps.children).filter(c => c.tagName === 'g');
+
+          const anchors = [];
+          for (const g of groups) {
+            const id = g.getAttribute('id') || '';
+            if (id === '') {
+              return { pass: false, message: 'Anchor group has no id.' };
+            }
+
+            // Check gps coordinates
+            const parts = id.split(',');
+            const hasLatLonId = parts.length === 2 && !isNaN(parseFloat(parts[0])) && !isNaN(parseFloat(parts[1]));
+            if (!hasLatLonId) {
+              return { pass: false, message: `Anchor group "${id}" id does not encode lat/lon as "lat,lon".` };
+            }
+            const lat = parseFloat(parts[0]);
+            const lon = parseFloat(parts[1]);
+          }
+          return { pass: true, message: `All ${groups.length} anchor(s) have coordinate data.` };
+        } catch (err) {
+          return { pass: false, message: `Error checking anchor coordinates: ${err.message}` };
+        }
+      }
+    },
+    {
       id: 'svg-anchor-shapes',
       name: 'Anchor shape elements',
-      description: 'Each anchor <g> must contain a <circle> or <ellipse>',
+      description: 'Each anchor <g> must contain a <circle>, <ellipse>, <rect>, or <path> element to define the anchor point visually',
       severity: 'error',
       async run(doc) {
         try {
@@ -225,9 +448,9 @@ class CheckRegistry {
           const groups = Array.from(gps.children).filter(c => c.tagName === 'g');
 
           for (const g of groups) {
-            const shape = g.querySelector('circle, ellipse');
+            const shape = g.querySelector('circle, ellipse, rect, path');
             if (!shape) {
-              return { pass: false, message: `Anchor group "${g.getAttribute('id') || ''}" is missing a <circle> or <ellipse> shape.` };
+              return { pass: false, message: `Anchor group "${g.getAttribute('id') || ''}" is missing a <circle>, <ellipse>, <rect>, or <path> shape.` };
             }
           }
           return { pass: true, message: `All ${groups.length} anchor correct shapes items.` };
@@ -238,8 +461,8 @@ class CheckRegistry {
     },
     {
       id: 'svg-anchor-coords',
-      name: 'Anchor coordinate encoding',
-      description: 'Each anchor <g> id must encode "lat,lon" and shape must have valid cx and cy attributes',
+      name: 'Anchor coordinate pairs',
+      description: 'Each anchor <g> id must encode "lat,lon" and shape objects in them must have valid cx and cy attributes',
       severity: 'error',
       async run(doc, shared) {
         try {
@@ -263,13 +486,16 @@ class CheckRegistry {
             const lon = parseFloat(parts[1]);
 
             // Check shape coordinates
-            const shape = g.querySelector('circle, ellipse');
-            const cx = shape.getAttribute('cx');
-            const cy = shape.getAttribute('cy');
-            if (cx === null || cy === null || isNaN(parseFloat(cx)) || isNaN(parseFloat(cy))) {
-              return { pass: false, message: `Anchor group "${id}" has invalid coordinates.` };
+            const shape = g.querySelector('circle, ellipse, rect, path');
+            if (!shape) {
+              return { pass: false, message: `Anchor group "${id}" is missing a <circle>, <ellipse>, <rect>, or <path> shape.` };
             }
-            anchors.push({ id, lat, lon, cx: parseFloat(cx), cy: parseFloat(cy) });
+
+            const center = getShapeCenter(shape);
+            if (!center) {
+              return { pass: false, message: `Anchor group "${id}" has invalid or unsupported shape coordinates.` };
+            }
+            anchors.push({ id, lat, lon, cx: center.cx, cy: center.cy });
           }
           shared.anchors = anchors;
           return { pass: true, message: `All ${groups.length} anchor(s) have coordinate data.` };
@@ -363,14 +589,14 @@ class CheckRegistry {
             return { pass: true, message: 'Fewer than 2 modular elements; no overlap possible.' };
           }
 
-          const overlaps = findOverlaps(doc, elements, 0.2);
+          const overlaps = await findOverlaps(doc, elements, 0.2);
           if (overlaps.length > 0) {
             const shown = overlaps.slice(0, 10);
             const more = overlaps.length > 10 ? `\n…and ${overlaps.length - 10} more` : '';
             return { pass: false, message: `${overlaps.length} overlapping pair(s) detected (IoU > 20%):\n${shown.join('\n')}${more}` };
           }
 
-          return { pass: true, message: `No overlapping modular elements detected (checked ${bboxes.length} elements, ${bboxes.length * (bboxes.length - 1) / 2} pairs).` };
+          return { pass: true, message: `No overlapping modular elements detected (checked ${elements.length} elements, ${elements.length * (elements.length - 1) / 2} pairs).` };
           
         } catch (err) {
           return { pass: false, message: `Error checking modular overlap: ${err.message}` };
@@ -384,13 +610,13 @@ class CheckRegistry {
       severity: 'warning',
       async run(doc, shared) {
         try {
-          const gpsGroup = doc.getElementById(section_ids.gps);
-          const scaleLine = gpsGroup.querySelector('line');
-          if (scaleLine) {
-            return { pass: true, message: `Scale line found in GPS group.` };
-          } else {
-            return { pass: false, message: `No scale line found in GPS group.` };
+          const gpsGroup = getSectionById(doc, section_ids.gps);
+          const scaleShapes = findScaleShapes(gpsGroup);
+          if (scaleShapes.length > 0) {
+            const labels = scaleShapes.map(s => s.id).join(', ');
+            return { pass: true, message: `Found ${scaleShapes.length} scale shape(s) in GPS group: ${labels}.` };
           }
+          return { pass: false, message: `No scale line found in GPS group. Expected a <line> or <path> with id like "5m".` };
         } catch (err) {
           return { pass: false, message: `Error checking scale line: ${err.message}` };
         }
@@ -418,21 +644,15 @@ class CheckRegistry {
           const metersPerPixel_anchors = geoDist_anchors / pixelDist_anchors;
           let metersPerPixel = metersPerPixel_anchors;
 
-          // Get line object from GPS group if it exists to provide a visual reference for the scale (optional, not required for the check)
-          const gpsGroup = doc.getElementById(section_ids.gps);
-          const scaleLine = gpsGroup.querySelector('line');
+          // Get scale shape(s) from GPS group if present to provide a visual
+          // reference for the scale (optional, not required for the check).
+          const gpsGroup = getSectionById(doc, section_ids.gps);
+          const scaleShapes = findScaleShapes(gpsGroup);
           let lineDetail = '';
-          if (scaleLine) {
-            // remove "m" suffix if present and parse the length in meters
-            const meterLength = parseFloat(scaleLine.getAttribute('id').replace('m', ''));
-            const x1 = parseFloat(scaleLine.getAttribute('x1'));
-            const y1 = parseFloat(scaleLine.getAttribute('y1'));
-            const x2 = parseFloat(scaleLine.getAttribute('x2'));
-            const y2 = parseFloat(scaleLine.getAttribute('y2'));
-            const pixelLength = Math.sqrt((x1 - x2) ** 2 + (y1 - y2) ** 2);
-            const metersPerPixel_line = meterLength / pixelLength;
-
-            // Compare it to anchor based scale
+          if (scaleShapes.length > 0) {
+            const s = scaleShapes[0];
+            const pixelLength = Math.sqrt((s.x1 - s.x2) ** 2 + (s.y1 - s.y2) ** 2);
+            const metersPerPixel_line = s.meters / pixelLength;
             lineDetail = `Scale from line object: ${metersPerPixel_line.toFixed(4)} m/px\nScale from anchors: ${metersPerPixel_anchors.toFixed(4)} m/px\n`;
           }
           

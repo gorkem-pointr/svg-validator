@@ -64,41 +64,18 @@
       });
     }
 
-    const scaleIdRe = /id="([\d.]+)m"/g;
-    let s;
-    while ((s = scaleIdRe.exec(gpsBlock)) !== null) {
-      const meters = parseFloat(s[1]);
-      const scaleId = s[1] + 'm';
-      const escaped = scaleId.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const lineRe = new RegExp(
-        '<line\\s+id="' + escaped + '"[^>]*x1="([^"]+)"[^>]*y1="([^"]+)"[^>]*x2="([^"]+)"[^>]*y2="([^"]+)"'
-      );
-      const lineMatch = lineRe.exec(gpsBlock);
-      if (lineMatch) {
-        scaleLines.push({
-          id: scaleId, meters,
-          x1: parseFloat(lineMatch[1]), y1: parseFloat(lineMatch[2]),
-          x2: parseFloat(lineMatch[3]), y2: parseFloat(lineMatch[4]),
-        });
-        continue;
+    // Scale lines: parse the SVG as XML so attribute order and trailing
+    // whitespace in ids don't matter, then delegate to the shared
+    // findScaleShapes() helper defined in validator.js. Keeps the validator
+    // check and the alignment view in lockstep.
+    try {
+      const xmlDoc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
+      const gpsGroup = xmlDoc.querySelector('g#GPS, g[id="GPS"], g[id="gps"], g[id="Gps"]');
+      if (gpsGroup && typeof findScaleShapes === 'function') {
+        scaleLines.push(...findScaleShapes(gpsGroup));
       }
-      const pathRe = new RegExp('<path\\s+id="' + escaped + '"[^>]*d="([^"]+)"');
-      const pathMatch = pathRe.exec(gpsBlock);
-      if (pathMatch) {
-        const d = pathMatch[1];
-        const mh = /^M([\d.]+)\s+([\d.]+)\s*[Hh]([\d.]+)/.exec(d);
-        const ml = /^M([\d.]+)\s+([\d.]+)\s*[Ll]([\d.]+)\s+([\d.]+)/.exec(d);
-        if (mh) {
-          const x1 = parseFloat(mh[1]), y1 = parseFloat(mh[2]), x2 = parseFloat(mh[3]);
-          scaleLines.push({ id: scaleId, meters, x1, y1, x2, y2: y1 });
-        } else if (ml) {
-          scaleLines.push({
-            id: scaleId, meters,
-            x1: parseFloat(ml[1]), y1: parseFloat(ml[2]),
-            x2: parseFloat(ml[3]), y2: parseFloat(ml[4]),
-          });
-        }
-      }
+    } catch (e) {
+      // If XML parsing fails, just return what we have for anchors.
     }
     return { anchors, scaleLines };
   }

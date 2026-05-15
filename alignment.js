@@ -170,7 +170,22 @@
   // ── DOM refs (resolved on init) ─────────────────────────────────
   let viewEl, sidebarEl, statusEl, filenameEl, anchorTbody, scaleTbody, scaleInfoEl,
       addAnchorBtn, freeAnchorsBtn, fixScaleBtn, anchorEditStatusEl, opacitySlider,
-      saveBtn, emptyEl;
+      emptyEl;
+
+  // Debounced push of anchor edits back into AppState so editor/Download
+  // always see the current state. `suppressAppStatePush` is true while we're
+  // re-loading the view in response to an external AppState change.
+  let pushTimer = null;
+  let suppressAppStatePush = false;
+  function pushAnchorsToAppState() {
+    if (suppressAppStatePush) return;
+    if (!originalSvgText || !anchors.length) return;
+    if (pushTimer) clearTimeout(pushTimer);
+    pushTimer = setTimeout(() => {
+      const updated = rewriteSvgAnchors(originalSvgText, anchors);
+      if (window.AppState) window.AppState.setSvgText(updated, 'align');
+    }, 150);
+  }
 
   // ── Lazy init ───────────────────────────────────────────────────
   function init() {
@@ -189,7 +204,6 @@
     fixScaleBtn = document.getElementById('btn-fix-scale');
     anchorEditStatusEl = document.getElementById('anchor-edit-status');
     opacitySlider = document.getElementById('opacity-slider');
-    saveBtn = document.getElementById('btn-align-save');
     emptyEl = document.getElementById('align-empty');
 
     map = L.map('alignMap', { zoomSnap: 0.25 }).setView([51.534, -0.1217], 18);
@@ -229,7 +243,6 @@
     addAnchorBtn.addEventListener('click', addAnchorMode);
     freeAnchorsBtn.addEventListener('click', toggleFreeAnchors);
     fixScaleBtn.addEventListener('click', fixScale);
-    saveBtn.addEventListener('click', saveAnchors);
 
     map.on('click', onMapClick);
     map.on('mousemove', onMapMouseMove);
@@ -535,8 +548,10 @@
           markers[idx].setLatLng([anchors[idx].lat, anchors[idx].lon]);
         }
         updateOverlayTransform();
+        pushAnchorsToAppState();
       });
     });
+    pushAnchorsToAppState();
   }
 
   function renderScaleTable() {
@@ -780,27 +795,6 @@
     setStatus(`Scale fixed (x${factor.toFixed(4)})`);
   }
 
-  // ── Save (download) ─────────────────────────────────────────────
-  function saveAnchors() {
-    if (!originalSvgText || anchors.length < 2) {
-      setStatus('Nothing to save', true); return;
-    }
-    const updated = rewriteSvgAnchors(originalSvgText, anchors);
-    const blob = new Blob([updated], { type: 'image/svg+xml' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = currentFilename || 'aligned.svg';
-    document.body.appendChild(a);
-    a.click();
-    document.body.removeChild(a);
-    setTimeout(() => URL.revokeObjectURL(url), 1000);
-    setStatus('Saved (downloaded)!');
-    saveBtn.classList.remove('save-flash');
-    void saveBtn.offsetWidth;
-    saveBtn.classList.add('save-flash');
-  }
-
   // ── Map click (add anchor + measure) ────────────────────────────
   function onMapClick(e) {
     if (addingAnchor) {
@@ -931,6 +925,27 @@
     renderAnchorTable();
   }
 
+  // ── AppState sync: pick up external SVG changes (editor / revert) ─
+  if (window.AppState) {
+    window.AppState.subscribe(({ source }) => {
+      if (source === 'align') return; // our own push, ignore
+      const text = window.AppState.svgText || '';
+      suppressAppStatePush = true;
+      try {
+        originalSvgText = text;
+        currentFilename = window.AppState.fileName || currentFilename;
+        cleanedSvgText = '';
+        const view = document.getElementById('alignmentView');
+        if (initialized && view && !view.hidden) {
+          map.invalidateSize();
+          loadIntoView();
+        }
+      } finally {
+        suppressAppStatePush = false;
+      }
+    });
+  }
+
   // ── Public API ──────────────────────────────────────────────────
   window.AlignmentView = {
     setSvg(text, filename) {
@@ -941,8 +956,9 @@
       // otherwise defer until enter().
       const view = document.getElementById('alignmentView');
       if (initialized && view && !view.hidden) {
-        map.invalidateSize();
-        loadIntoView();
+        suppressAppStatePush = true;
+        try { map.invalidateSize(); loadIntoView(); }
+        finally { suppressAppStatePush = false; }
       }
     },
     clear() {
@@ -956,7 +972,11 @@
       // before measuring/drawing — otherwise fitBounds runs on a 0-sized map.
       requestAnimationFrame(() => {
         map.invalidateSize();
-        if (originalSvgText && !cleanedSvgText) loadIntoView();
+        if (originalSvgText && !cleanedSvgText) {
+          suppressAppStatePush = true;
+          try { loadIntoView(); }
+          finally { suppressAppStatePush = false; }
+        }
       });
     },
     exit() { /* tab visibility is handled by the tab controller */ },

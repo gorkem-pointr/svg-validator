@@ -710,6 +710,9 @@ class CheckRegistry {
       async run(doc) {
         try {
           const el = getSectionById(doc, section_ids.walls);
+          if (!el) {
+            return { pass: false, message: `<g id="${section_ids.walls}"> not found. Walls are required for accurate indoor maps.` };
+          }
           // Check for line and path elements as simple wall representations
           const lines = el.querySelectorAll('line');
           const paths = el.querySelectorAll('path');
@@ -964,7 +967,6 @@ class CheckRunner {
 ════════════════════════════════════════════════════════════════ */
 (function () {
   // ── State ────────────────────────────────────────────────────
-  let svgDoc = null;
   let activeFilter = null;  // 'pass' | 'fail' | 'warn' | null
   const runner = new CheckRunner();
   const rowMap = {};   // checkId → DOM row element
@@ -976,6 +978,7 @@ class CheckRunner {
   const fileName        = document.getElementById('fileName');
   const fileSize        = document.getElementById('fileSize');
   const fileClear       = document.getElementById('fileClear');
+  const fileReload      = document.getElementById('fileReload');
   const runSvgBtn       = document.getElementById('runSvgBtn');
   const runAllBtn       = document.getElementById('runAllBtn');
   const clearResultsBtn = document.getElementById('clearResultsBtn');
@@ -991,21 +994,30 @@ class CheckRunner {
   const apiToggleLabel  = document.getElementById('apiToggleLabel');
   const navValidate     = document.getElementById('navValidate');
   const navAlign        = document.getElementById('navAlign');
+  const navEdit         = document.getElementById('navEdit');
+  const navDownload     = document.getElementById('navDownload');
   const homeView        = document.getElementById('homeView');
   const validateView    = document.getElementById('validateView');
   const alignmentView   = document.getElementById('alignmentView');
+  const editorView      = document.getElementById('editorView');
 
   function showView(name) {
     homeView.hidden = name !== 'home';
     validateView.hidden = name !== 'validate';
     alignmentView.hidden = name !== 'align';
+    editorView.hidden = name !== 'editor';
     navValidate.classList.toggle('active', name === 'validate');
     navAlign.classList.toggle('active', name === 'align');
+    navEdit.classList.toggle('active', name === 'editor');
     if (name === 'align' && window.AlignmentView) window.AlignmentView.enter();
     else if (window.AlignmentView) window.AlignmentView.exit();
+    if (name === 'editor' && window.EditorView) window.EditorView.enter();
+    else if (window.EditorView) window.EditorView.exit();
   }
   navValidate.addEventListener('click', () => { if (!navValidate.disabled) showView('validate'); });
-  navAlign.addEventListener('click', () => { if (!navAlign.disabled) showView('align'); });
+  navAlign.addEventListener('click',    () => { if (!navAlign.disabled)    showView('align'); });
+  navEdit.addEventListener('click',     () => { if (!navEdit.disabled)     showView('editor'); });
+  navDownload.addEventListener('click', () => { if (!navDownload.disabled) downloadCurrentSvg(); });
   const sidebarHome = document.getElementById('sidebarHome');
   if (sidebarHome) sidebarHome.addEventListener('click', () => showView('home'));
 
@@ -1021,6 +1033,11 @@ class CheckRunner {
   // ── File Handling ────────────────────────────────────────────
   fileInput.addEventListener('change', e => loadFile(e.target.files[0]));
   fileClear.addEventListener('click', clearFile);
+  if (fileReload) fileReload.addEventListener('click', () => {
+    if (!window.AppState.hasSvg()) return;
+    window.AppState.revertToOriginal();
+    clearResults();
+  });
 
   dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag-over'); });
   dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag-over'));
@@ -1040,49 +1057,76 @@ class CheckRunner {
     const reader = new FileReader();
     reader.onload = ev => {
       const text = ev.target.result;
-      const parser = new DOMParser();
-      svgDoc = parser.parseFromString(text, 'image/svg+xml');
-      const parseErr = svgDoc.querySelector('parsererror');
-      if (parseErr) {
+      const probe = new DOMParser().parseFromString(text, 'image/svg+xml');
+      if (probe.querySelector('parsererror')) {
         alert('The file could not be parsed as valid XML/SVG.');
         return;
       }
-      fileName.textContent = file.name;
+      window.AppState.loadFromUpload(text, file.name);
+      const fileNameText = fileName.querySelector('.file-info-name-text') || fileName;
+      fileNameText.textContent = file.name;
+      fileName.dataset.tooltip = file.name;
       fileSize.textContent = formatBytes(file.size);
       fileInfo.classList.add('visible');
       runSvgBtn.disabled = false;
       updateRunAllBtn();
       clearResults();
-      if (window.AlignmentView) {
-        window.AlignmentView.setSvg(text, file.name);
-      }
-      navValidate.disabled = false;
-      navValidate.removeAttribute('title');
-      navAlign.disabled = false;
-      navAlign.removeAttribute('title');
-      if (homeValidateBtn) { homeValidateBtn.disabled = false; homeValidateBtn.removeAttribute('title'); }
-      if (homeAlignBtn)    { homeAlignBtn.disabled = false;    homeAlignBtn.removeAttribute('title'); }
+      if (window.AlignmentView) window.AlignmentView.setSvg(text, file.name);
+      if (window.EditorView) window.EditorView.setSvg(text);
+      setNavEnabled(true);
     };
     reader.readAsText(file);
   }
 
   function clearFile() {
-    svgDoc = null;
+    window.AppState.clear();
     fileInput.value = '';
     fileInfo.classList.remove('visible');
     runSvgBtn.disabled = true;
     runAllBtn.disabled = true; // no SVG = always disabled regardless of credentials
     clearResults();
-    if (window.AlignmentView) {
-      window.AlignmentView.clear();
+    if (window.AlignmentView) window.AlignmentView.clear();
+    if (window.EditorView) window.EditorView.clear();
+    setNavEnabled(false);
+    if (!alignmentView.hidden || !validateView.hidden || !editorView.hidden) showView('home');
+  }
+
+  function setNavEnabled(enabled) {
+    const btns = [navValidate, navAlign, navEdit, navDownload];
+    btns.forEach(b => {
+      b.disabled = !enabled;
+      if (enabled) b.removeAttribute('title');
+      else b.title = 'Load an SVG first';
+    });
+    if (homeValidateBtn) {
+      homeValidateBtn.disabled = !enabled;
+      if (enabled) homeValidateBtn.removeAttribute('title');
+      else homeValidateBtn.title = 'Load an SVG first';
     }
-    navValidate.disabled = true;
-    navValidate.title = 'Load an SVG first';
-    navAlign.disabled = true;
-    navAlign.title = 'Load an SVG first';
-    if (homeValidateBtn) { homeValidateBtn.disabled = true; homeValidateBtn.title = 'Load an SVG first'; }
-    if (homeAlignBtn)    { homeAlignBtn.disabled = true;    homeAlignBtn.title = 'Load an SVG first'; }
-    if (!alignmentView.hidden || !validateView.hidden) showView('home');
+    if (homeAlignBtn) {
+      homeAlignBtn.disabled = !enabled;
+      if (enabled) homeAlignBtn.removeAttribute('title');
+      else homeAlignBtn.title = 'Load an SVG first';
+    }
+  }
+
+  function downloadCurrentSvg() {
+    if (!window.AppState.hasSvg()) return;
+    const text = window.AppState.svgText;
+    const origName = window.AppState.fileName || 'image.svg';
+    const dot = origName.lastIndexOf('.');
+    const stem = dot > 0 ? origName.slice(0, dot) : origName;
+    const ext  = dot > 0 ? origName.slice(dot)    : '.svg';
+    const name = window.AppState.isEdited ? `${stem}-edited${ext}` : origName;
+    const blob = new Blob([text], { type: 'image/svg+xml' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   function formatBytes(b) {
@@ -1105,7 +1149,11 @@ class CheckRunner {
   clearResultsBtn.addEventListener('click', clearResults);
 
   async function runChecks(includeApi) {
-    if (!svgDoc) return;
+    const svgDoc = window.AppState.getSvgDoc();
+    if (!svgDoc) {
+      alert('Current SVG is not valid XML — fix it in the editor first.');
+      return;
+    }
     clearResults();
     setRunning(true);
 
@@ -1168,12 +1216,13 @@ class CheckRunner {
   }
 
   function updateRunAllBtn() {
-    runAllBtn.disabled = !svgDoc || !hasCredentials();
+    runAllBtn.disabled = !window.AppState.hasSvg() || !hasCredentials();
   }
 
   function setRunning(running) {
-    runSvgBtn.disabled = running || !svgDoc;
-    runAllBtn.disabled = running || !svgDoc || !hasCredentials();
+    const hasSvg = window.AppState.hasSvg();
+    runSvgBtn.disabled = running || !hasSvg;
+    runAllBtn.disabled = running || !hasSvg || !hasCredentials();
     const btnIcon = `<svg viewBox="0 0 24 24" fill="none" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="${running ? 'spinning' : ''}">` +
       (running
         ? '<path d="M21 12a9 9 0 1 1-6.219-8.56"/>'

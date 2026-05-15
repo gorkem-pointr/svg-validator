@@ -84,8 +84,10 @@
 }
 #alignView #scale-table th { color: #888; font-weight: 600; }
 #alignView #scale-info { font-size: 12px; margin-top: 6px; }
-#alignView #scale-info .mismatch { color: #e74c3c; }
-#alignView #scale-info .match { color: #2ecc71; }
+#alignView #scale-info .mismatch,
+#alignView #scale-table .mismatch { color: #e74c3c; font-weight: 600; }
+#alignView #scale-info .match,
+#alignView #scale-table .match { color: #2ecc71; }
 
 #alignView #opacity-control { display: flex; align-items: center; gap: 6px; }
 #alignView #opacity-control label { font-size: 13px; flex: none; }

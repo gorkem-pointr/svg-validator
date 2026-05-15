@@ -57,7 +57,7 @@
     setupSplitter();
     setupModeButtons();
     setupPreviewClick();
-    window.addEventListener('resize', repositionOverlay);
+    window.addEventListener('resize', hideOverlay);
 
     // Initial load from AppState.
     rebuildFromText(window.AppState.svgText || '');
@@ -84,7 +84,7 @@
       let pct = ((e.clientX - rect.left) / rect.width) * 100;
       pct = Math.max(15, Math.min(85, pct));
       splitEl.style.setProperty('--editor-left-width', pct + '%');
-      repositionOverlay();
+      hideOverlay();
     });
     document.addEventListener('mouseup', () => {
       if (!dragging) return;
@@ -277,8 +277,9 @@
         return;
       }
       if (e.target.classList.contains('tnode-attr-value')) return; // handled separately
-      selectId(id, { scroll: false });
     });
+    header.addEventListener('mouseenter', () => showOverlayForId(id));
+    header.addEventListener('mouseleave', () => hideOverlay());
 
     if (textChild) {
       const t = document.createElement('span');
@@ -396,7 +397,7 @@
     const text = serializeWorking();
     lastValidText = text;
     renderPreview();
-    if (selectedId) repositionOverlay();
+    hideOverlay();
     window.AppState.setSvgText(text, 'editor');
   }
 
@@ -404,11 +405,9 @@
   function selectId(id, opts) {
     if (!elementById.has(id)) return;
     selectedId = id;
-    // Tree side: clear other selections, mark this header.
     treeEl.querySelectorAll('.tnode-header.selected').forEach(h => h.classList.remove('selected'));
     const tNode = treeEl.querySelector(`.tnode[data-id="${cssEscape(id)}"]`);
     if (tNode) {
-      // Expand ancestors.
       let p = tNode.parentElement;
       while (p && p !== treeEl) {
         if (p.classList && p.classList.contains('tnode')) p.classList.remove('collapsed');
@@ -420,8 +419,24 @@
         if (opts && opts.scroll) header.scrollIntoView({ block: 'nearest' });
       }
     }
-    // Preview side: draw overlay
-    repositionOverlay();
+  }
+
+  function showOverlayForId(id) {
+    if (!id || !elementById.has(id)) { hideOverlay(); return; }
+    const svg = previewEl.querySelector('svg');
+    if (!svg) { hideOverlay(); return; }
+    const target = svg.matches(`[${ATTR_ID}="${cssEscape(id)}"]`)
+      ? svg
+      : svg.querySelector(`[${ATTR_ID}="${cssEscape(id)}"]`);
+    if (!target) { hideOverlay(); return; }
+    const rect = target.getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) { hideOverlay(); return; }
+    const host = previewEl.getBoundingClientRect();
+    selOverlay.hidden = false;
+    selOverlay.style.left   = (rect.left - host.left + previewEl.scrollLeft) + 'px';
+    selOverlay.style.top    = (rect.top  - host.top  + previewEl.scrollTop)  + 'px';
+    selOverlay.style.width  = rect.width  + 'px';
+    selOverlay.style.height = rect.height + 'px';
   }
 
   function setupPreviewClick() {
@@ -436,24 +451,6 @@
       const id = n.getAttribute(ATTR_ID);
       if (id) selectId(id, { scroll: true });
     });
-  }
-
-  function repositionOverlay() {
-    if (!selectedId) { hideOverlay(); return; }
-    const svg = previewEl.querySelector('svg');
-    if (!svg) { hideOverlay(); return; }
-    const target = svg.matches(`[${ATTR_ID}="${cssEscape(selectedId)}"]`)
-      ? svg
-      : svg.querySelector(`[${ATTR_ID}="${cssEscape(selectedId)}"]`);
-    if (!target) { hideOverlay(); return; }
-    const rect = target.getBoundingClientRect();
-    const host = previewEl.getBoundingClientRect();
-    if (rect.width === 0 && rect.height === 0) { hideOverlay(); return; }
-    selOverlay.hidden = false;
-    selOverlay.style.left   = (rect.left - host.left + previewEl.scrollLeft) + 'px';
-    selOverlay.style.top    = (rect.top  - host.top  + previewEl.scrollTop)  + 'px';
-    selOverlay.style.width  = rect.width  + 'px';
-    selOverlay.style.height = rect.height + 'px';
   }
 
   function hideOverlay() {
@@ -527,7 +524,7 @@
       const t = window.AppState.svgText || '';
       if (!workingDoc || serializeWorking() !== t) rebuildFromText(t);
       if (mode === 'raw' && cm) requestAnimationFrame(() => cm.refresh());
-      requestAnimationFrame(repositionOverlay);
+      hideOverlay();
     },
     exit() {},
     hasSvg() { return !!(window.AppState && window.AppState.hasSvg()); },

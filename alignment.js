@@ -754,12 +754,13 @@
       const p2 = cartToLatLng(sl.x2, sl.y2);
       const currentMeters = haversine(p1[0], p1[1], p2[0], p2[1]);
       const rawDiff = currentMeters - sl.meters;
-      const pct = ((rawDiff / sl.meters) * 100).toFixed(1);
+      let pct = ((rawDiff / sl.meters) * 100).toFixed(1);
+      if (parseFloat(pct) === 0) pct = '0.0';
       const cls = Math.abs(rawDiff) < sl.meters * 0.01 ? 'match' : 'mismatch';
-      const sign = rawDiff >= 0 ? '+' : '';
+      const sign = pct === '0.0' ? '' : (rawDiff >= 0 ? '+' : '');
       const curEl = document.getElementById(`scale-cur-${i}`);
       const diffEl = document.getElementById(`scale-diff-${i}`);
-      if (curEl) curEl.innerHTML = `<span class="${cls}">${currentMeters.toFixed(2)}m</span>`;
+      if (curEl) curEl.textContent = `${currentMeters.toFixed(2)}m`;
       if (diffEl) diffEl.innerHTML = `<span class="${cls}">${sign}${pct}%</span>`;
       totalExpected += sl.meters;
       totalMeasured += currentMeters;
@@ -768,11 +769,12 @@
     lastMeasuredMeters = totalMeasured / scaleLines.length;
     const avgExpected = totalExpected / scaleLines.length;
     const avgRawDiff = lastMeasuredMeters - avgExpected;
-    const avgPct = ((avgRawDiff / avgExpected) * 100).toFixed(1);
+    let avgPct = ((avgRawDiff / avgExpected) * 100).toFixed(1);
+    if (parseFloat(avgPct) === 0) avgPct = '0.0';
     const avgCls = Math.abs(avgRawDiff) < avgExpected * 0.01 ? 'match' : 'mismatch';
-    const avgSign = avgRawDiff >= 0 ? '+' : '';
+    const avgSign = avgPct === '0.0' ? '' : (avgRawDiff >= 0 ? '+' : '');
     scaleInfoEl.innerHTML = scaleLines.length > 1
-      ? `Avg: <b>${avgExpected.toFixed(1)}m</b> exp, <span class="${avgCls}"><b>${lastMeasuredMeters.toFixed(2)}m</b></span> cur (<span class="${avgCls}">${avgSign}${avgPct}%</span>)`
+      ? `Avg: <b>${avgExpected.toFixed(1)}m</b> exp, <b>${lastMeasuredMeters.toFixed(2)}m</b> cur (<span class="${avgCls}">${avgSign}${avgPct}%</span>)`
       : '';
   }
 

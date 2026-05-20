@@ -16,114 +16,204 @@
   'use strict';
 
   // ── Parsing (anchors + scale lines) ─────────────────────────────
-  // Mirrors parse_svg in geojson-alignment/app.py.
 
-  function extractGpsBlock(svgText) {
-    const open = /<g\s+id="GPS"[^>]*>/.exec(svgText);
-    if (!open) return null;
-    let depth = 1;
-    let pos = open.index + open[0].length;
-    while (depth > 0 && pos < svgText.length) {
-      const restOpen = /<g[\s>]/.exec(svgText.slice(pos));
-      const restClose = /<\/g>/.exec(svgText.slice(pos));
-      if (!restClose) break;
-      if (restOpen && restOpen.index < restClose.index) {
-        depth += 1;
-        pos += restOpen.index + 1;
-      } else {
-        depth -= 1;
-        if (depth === 0) {
-          return svgText.slice(open.index + open[0].length, pos + restClose.index);
-        }
-        pos += restClose.index + restClose[0].length;
-      }
-    }
-    return null;
-  }
-
+  // Parse SVG anchors + scale lines using the same DOM-based flow as the
+  // validator's `svg-anchor-coords` check: locate the GPS section with case
+  // fallback, walk direct <g> children, derive the center via getShapeCenter
+  // (supports circle/ellipse/rect/path). Keeps the two views in lockstep.
   function parseSvgInfo(svgText) {
     const anchors = [];
     const scaleLines = [];
 
-    const gpsBlock = extractGpsBlock(svgText);
-    if (!gpsBlock) return { anchors, scaleLines };
+    let xmlDoc;
+    try {
+      xmlDoc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
+    } catch (e) {
+      return { anchors, scaleLines };
+    }
+    if (!xmlDoc || xmlDoc.querySelector('parsererror')) return { anchors, scaleLines };
 
-    const anchorRe = /<g\s+id="([^"]+)">\s*<(?:circle|ellipse)\s+id="([^"]+)"\s+cx="([^"]+)"\s+cy="([^"]+)"/g;
-    let m;
-    while ((m = anchorRe.exec(gpsBlock)) !== null) {
-      const parts = m[1].split(',').map(s => s.trim());
+    const gps = (typeof getSectionById === 'function')
+      ? getSectionById(xmlDoc, 'GPS')
+      : (xmlDoc.querySelector('[id="GPS"]')
+         || xmlDoc.querySelector('[id="gps"]')
+         || xmlDoc.querySelector('[id="Gps"]'));
+    if (!gps) return { anchors, scaleLines };
+
+    const groups = Array.from(gps.children).filter(c => c.tagName === 'g');
+    for (const g of groups) {
+      const id = g.getAttribute('id') || '';
+      const parts = id.split(',').map(s => s.trim());
       if (parts.length !== 2) continue;
       const lat = parseFloat(parts[0]);
       const lon = parseFloat(parts[1]);
       if (Number.isNaN(lat) || Number.isNaN(lon)) continue;
+
+      const shape = g.querySelector('circle, ellipse, rect, path');
+      if (!shape) continue;
+
+      let center = null;
+      if (typeof getShapeCenter === 'function') {
+        center = getShapeCenter(shape);
+      } else {
+        const cx = parseFloat(shape.getAttribute('cx'));
+        const cy = parseFloat(shape.getAttribute('cy'));
+        if (!Number.isNaN(cx) && !Number.isNaN(cy)) center = { cx, cy };
+      }
+      if (!center) continue;
+
       anchors.push({
-        label: m[2],
+        label: shape.getAttribute('id') || id,
         lat, lon,
-        cx: parseFloat(m[3]),
-        cy: parseFloat(m[4]),
+        cx: center.cx,
+        cy: center.cy,
       });
     }
 
-    // Scale lines: parse the SVG as XML so attribute order and trailing
-    // whitespace in ids don't matter, then delegate to the shared
-    // findScaleShapes() helper defined in validator.js. Keeps the validator
-    // check and the alignment view in lockstep.
-    try {
-      const xmlDoc = new DOMParser().parseFromString(svgText, 'image/svg+xml');
-      const gpsGroup = xmlDoc.querySelector('g#GPS, g[id="GPS"], g[id="gps"], g[id="Gps"]');
-      if (gpsGroup && typeof findScaleShapes === 'function') {
-        scaleLines.push(...findScaleShapes(gpsGroup));
-      }
-    } catch (e) {
-      // If XML parsing fails, just return what we have for anchors.
+    if (typeof findScaleShapes === 'function') {
+      scaleLines.push(...findScaleShapes(gps));
     }
+
     return { anchors, scaleLines };
   }
 
-  // Mirrors update_svg_anchors in geojson-alignment/app.py.
-  // Returns the modified SVG text. Anchor matching is by inner circle/ellipse id (label).
+  // Write anchor lat/lon + center coords back into the SVG. Mirrors
+  // parseSvgInfo's read flow: DOM-based, supports circle/ellipse/rect/path
+  // shapes. Existing anchors are matched by inner shape id (label). New
+  // anchors are inserted into GPS as fresh <circle> groups.
   function rewriteSvgAnchors(svgText, anchors) {
-    let out = svgText;
+    let xmlDoc;
+    try { xmlDoc = new DOMParser().parseFromString(svgText, 'image/svg+xml'); }
+    catch (e) { return svgText; }
+    if (!xmlDoc || xmlDoc.querySelector('parsererror')) return svgText;
+
+    const gps = (typeof getSectionById === 'function')
+      ? getSectionById(xmlDoc, 'GPS')
+      : (xmlDoc.querySelector('[id="GPS"]')
+         || xmlDoc.querySelector('[id="gps"]')
+         || xmlDoc.querySelector('[id="Gps"]'));
+    if (!gps) return svgText;
+
+    // Map inner-shape id → { groupEl, shapeEl } for existing anchors.
+    const existing = new Map();
+    for (const g of Array.from(gps.children).filter(c => c.tagName === 'g')) {
+      const shape = g.querySelector('circle, ellipse, rect, path');
+      if (!shape) continue;
+      const lbl = shape.getAttribute('id') || '';
+      if (lbl) existing.set(lbl, { groupEl: g, shapeEl: shape });
+    }
+
     for (const a of anchors) {
-      const escapedLabel = a.label.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-      const re = new RegExp(
-        '(<g\\s+id=")([^"]+)(">\\s*<(?:circle|ellipse)\\s+id="' + escapedLabel + '"[^>]*?\\s+cx=")([^"]+)("\\s+cy=")([^"]+)(")'
-      );
-      const newCoord = `${a.lat},${a.lon}`;
-      const newCx = `${a.cx ?? 0}`;
-      const newCy = `${a.cy ?? 0}`;
-      if (re.test(out)) {
-        out = out.replace(re, `$1${newCoord}$3${newCx}$5${newCy}$7`);
-        continue;
-      }
-      // New anchor — insert into GPS group.
-      const insertion =
-        `  <g id="${a.lat},${a.lon}">\n` +
-        `    <circle id="${a.label}" cx="${a.cx || 0}" cy="${a.cy || 0}" r="10" fill="#D9D9D9"/>\n` +
-        `  </g>\n`;
-      const open = /<g\s+id="GPS"[^>]*>/.exec(out);
-      if (!open) continue;
-      let depth = 1;
-      let pos = open.index + open[0].length;
-      while (depth > 0 && pos < out.length) {
-        const restOpen = /<g[\s>]/.exec(out.slice(pos));
-        const restClose = /<\/g>/.exec(out.slice(pos));
-        if (!restClose) break;
-        if (restOpen && restOpen.index < restClose.index) {
-          depth += 1;
-          pos += restOpen.index + 1;
-        } else {
-          depth -= 1;
-          if (depth === 0) {
-            const insertPos = pos + restClose.index;
-            out = out.slice(0, insertPos) + insertion + out.slice(insertPos);
-            break;
-          }
-          pos += restClose.index + restClose[0].length;
-        }
+      const found = existing.get(a.label);
+      const newCx = Number.isFinite(a.cx) ? a.cx : 0;
+      const newCy = Number.isFinite(a.cy) ? a.cy : 0;
+      if (found) {
+        found.groupEl.setAttribute('id', `${a.lat},${a.lon}`);
+        setShapeCenter(found.shapeEl, newCx, newCy);
+      } else {
+        const ns = 'http://www.w3.org/2000/svg';
+        const newG = xmlDoc.createElementNS(ns, 'g');
+        newG.setAttribute('id', `${a.lat},${a.lon}`);
+        const c = xmlDoc.createElementNS(ns, 'circle');
+        c.setAttribute('id', a.label);
+        c.setAttribute('cx', String(newCx));
+        c.setAttribute('cy', String(newCy));
+        c.setAttribute('r', '10');
+        c.setAttribute('fill', '#D9D9D9');
+        newG.appendChild(c);
+        gps.appendChild(newG);
       }
     }
-    return out;
+
+    return new XMLSerializer().serializeToString(xmlDoc.documentElement);
+  }
+
+  // Update a shape's geometric center to (cx, cy) in SVG-local coords.
+  // - circle/ellipse: set cx/cy attributes.
+  // - rect: derive x/y from current width/height so the center lands at (cx,cy).
+  // - path: translate the `d` attribute so its bbox center lands at (cx,cy).
+  function setShapeCenter(shape, cx, cy) {
+    const tag = shape.tagName.toLowerCase();
+    if (tag === 'circle' || tag === 'ellipse') {
+      shape.setAttribute('cx', String(cx));
+      shape.setAttribute('cy', String(cy));
+      return;
+    }
+    if (tag === 'rect') {
+      const w = parseFloat(shape.getAttribute('width'))  || 0;
+      const h = parseFloat(shape.getAttribute('height')) || 0;
+      shape.setAttribute('x', String(cx - w / 2));
+      shape.setAttribute('y', String(cy - h / 2));
+      return;
+    }
+    if (tag === 'path') {
+      const current = (typeof getShapeCenter === 'function') ? getShapeCenter(shape) : null;
+      if (!current) return;
+      const dx = cx - current.cx;
+      const dy = cy - current.cy;
+      if (dx === 0 && dy === 0) return;
+      const newD = translatePathD(shape.getAttribute('d') || '', dx, dy);
+      if (newD) shape.setAttribute('d', newD);
+    }
+  }
+
+  // Translate every absolute coordinate in a path `d` string by (dx, dy).
+  // Relative commands (lowercase) are left alone — they're already relative
+  // to the prior point, so the path shifts as a whole when the first M is
+  // shifted. The first command in a path is treated as absolute even when
+  // lowercase, per SVG spec.
+  function translatePathD(d, dx, dy) {
+    if (!d || (dx === 0 && dy === 0)) return d;
+    const tokens = [];
+    const re = /([MmLlHhVvCcSsQqTtAaZz])|([+-]?(?:\d+\.\d+|\.\d+|\d+)(?:[eE][+-]?\d+)?)/g;
+    let m;
+    while ((m = re.exec(d)) !== null) tokens.push(m[1] || m[2]);
+
+    const ARGS = { M: 2, L: 2, H: 1, V: 1, C: 6, S: 4, Q: 4, T: 2, A: 7, Z: 0 };
+    const out = [];
+    let i = 0;
+    let cmd = '';
+    let firstIter = true;
+
+    while (i < tokens.length) {
+      if (/[A-Za-z]/.test(tokens[i])) {
+        cmd = tokens[i++];
+        out.push(cmd);
+      }
+      if (!cmd) { i++; continue; }
+      const upper = cmd.toUpperCase();
+      if (upper === 'Z') continue;
+      const n = ARGS[upper];
+      if (n == null || i + n > tokens.length) break;
+      const p = [];
+      for (let k = 0; k < n; k++) p.push(parseFloat(tokens[i++]));
+      const isAbs = cmd === upper;
+      const shift = isAbs || firstIter;
+      const t = shift ? translateParams(upper, p, dx, dy) : p;
+      out.push(...t.map(fmtNum));
+      firstIter = false;
+      if (upper === 'M') cmd = isAbs ? 'L' : 'l';  // implicit continuation
+    }
+    return out.join(' ');
+  }
+
+  function translateParams(upper, p, dx, dy) {
+    switch (upper) {
+      case 'M': case 'L': case 'T': return [p[0]+dx, p[1]+dy];
+      case 'H': return [p[0]+dx];
+      case 'V': return [p[0]+dy];
+      case 'C': return [p[0]+dx, p[1]+dy, p[2]+dx, p[3]+dy, p[4]+dx, p[5]+dy];
+      case 'S': case 'Q': return [p[0]+dx, p[1]+dy, p[2]+dx, p[3]+dy];
+      case 'A': return [p[0], p[1], p[2], p[3], p[4], p[5]+dx, p[6]+dy];
+      default: return p;
+    }
+  }
+
+  function fmtNum(n) {
+    if (Number.isInteger(n)) return String(n);
+    let s = n.toFixed(4);
+    if (s.includes('.')) s = s.replace(/0+$/, '').replace(/\.$/, '');
+    return s;
   }
 
   // ── Math helpers ────────────────────────────────────────────────

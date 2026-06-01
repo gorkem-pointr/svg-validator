@@ -290,6 +290,42 @@ function getShapeCenter(shape) {
 }
 
 
+/**
+ * Return the local-space width/height of an SVG shape. Supports <rect> (from
+ * width/height attributes) and <path>/<circle>/<ellipse>/<polygon> (via
+ * getBBox on an off-screen clone). Returns null if the size can't be derived.
+ */
+function getShapeSize(shape) {
+  const tag = shape.tagName.toLowerCase();
+
+  if (tag === 'rect') {
+    const w = parseFloat(shape.getAttribute('width'));
+    const h = parseFloat(shape.getAttribute('height'));
+    if (isNaN(w) || isNaN(h) || w <= 0 || h <= 0) return null;
+    return { w, h };
+  }
+
+  // Everything else: measure via getBBox() on an off-screen clone.
+  const container = document.createElement('div');
+  container.style.cssText = 'position:absolute;left:-99999px;top:-99999px;width:1px;height:1px;overflow:hidden;';
+  const svgNS = 'http://www.w3.org/2000/svg';
+  const svg = document.createElementNS(svgNS, 'svg');
+  const cloned = shape.cloneNode(true);
+  svg.appendChild(cloned);
+  container.appendChild(svg);
+  document.body.appendChild(container);
+  try {
+    const b = cloned.getBBox();
+    if (b.width <= 0 || b.height <= 0) return null;
+    return { w: b.width, h: b.height };
+  } catch (e) {
+    return null;
+  } finally {
+    document.body.removeChild(container);
+  }
+}
+
+
 async function findOverlaps(doc, elements, iouThreshold = 0.1) {
   // Clone SVG into a hidden DOM element so getBBox() and getCTM() work
   // for both <rect> and <path> elements, accounting for group transforms.
@@ -453,7 +489,7 @@ class CheckRegistry {
               return { pass: false, message: `Anchor group "${g.getAttribute('id') || ''}" is missing a <circle>, <ellipse>, <rect>, or <path> shape.` };
             }
           }
-          return { pass: true, message: `All ${groups.length} anchor correct shapes items.` };
+          return { pass: true, message: `All ${groups.length} anchor(s) have correct shapes.` };
         } catch (err) {
           return { pass: false, message: `Error checking anchor shapes: ${err.message}` };
         }
@@ -593,7 +629,7 @@ class CheckRegistry {
           if (overlaps.length > 0) {
             const shown = overlaps.slice(0, 10);
             const more = overlaps.length > 10 ? `\n…and ${overlaps.length - 10} more` : '';
-            return { pass: false, message: `${overlaps.length} overlapping pair(s) detected (IoU > 20%):\n${shown.join('\n')}${more}` };
+            return { pass: false, message: `${overlaps.length} overlapping pair(s) detected (Intersection over Union (IoU) > 20%):\n${shown.join('\n')}${more}` };
           }
 
           return { pass: true, message: `No overlapping modular elements detected (checked ${elements.length} elements, ${elements.length * (elements.length - 1) / 2} pairs).` };
@@ -607,7 +643,7 @@ class CheckRegistry {
       id: 'svg-scale-line-check',
       name: 'Scale line check',
       description: 'Check the scale line in the GPS group.',
-      severity: 'warning',
+      severity: 'error',
       async run(doc, shared) {
         try {
           const gpsGroup = getSectionById(doc, section_ids.gps);
@@ -648,28 +684,26 @@ class CheckRegistry {
           // reference for the scale (optional, not required for the check).
           const gpsGroup = getSectionById(doc, section_ids.gps);
           const scaleShapes = findScaleShapes(gpsGroup);
-          let lineDetail = '';
+          let details = '';
+          let metersPerPixel_line = 0;
           if (scaleShapes.length > 0) {
             const s = scaleShapes[0];
             const pixelLength = Math.sqrt((s.x1 - s.x2) ** 2 + (s.y1 - s.y2) ** 2);
-            const metersPerPixel_line = s.meters / pixelLength;
-            lineDetail = `Scale from line object: ${metersPerPixel_line.toFixed(4)} m/px\nScale from anchors: ${metersPerPixel_anchors.toFixed(4)} m/px\n`;
+            metersPerPixel_line = s.meters / pixelLength;
+            details = `Scale from line object: ${metersPerPixel_line.toFixed(4)} m/px\nScale from anchors: ${metersPerPixel_anchors.toFixed(4)} m/px\n`;
           }
           
           // Compute average modular size in pixels using stored modulars in shared.svgModulars
           const sizes = [];
           for (const el of shared.svgModulars) {
-            if (el.tagName === 'rect') {
-              const w = parseFloat(el.getAttribute('width'));
-              const h = parseFloat(el.getAttribute('height'));
-              if (!isNaN(w) && !isNaN(h) && w > 0 && h > 0) {
-                sizes.push({ w: w * metersPerPixel, h: h * metersPerPixel });
-              }
+            const size = getShapeSize(el);
+            if (size) {
+              sizes.push({ w: size.w * metersPerPixel, h: size.h * metersPerPixel });
             }
           }
 
           if (sizes.length === 0) {
-            return { pass: false, message: 'Could not compute modular sizes — no <rect> elements with valid width/height found.' };
+            return { pass: false, message: 'Could not compute modular sizes — no <rect> or <path> elements with valid dimensions found.' };
           }
 
           const avgW = sizes.reduce((s, v) => s + v.w, 0) / sizes.length;
@@ -678,8 +712,24 @@ class CheckRegistry {
           const maxSide = Math.max(avgW, avgH);
 
           // Give details in 3 lines
-          const detail = `${lineDetail}Avg modular using anchor scale: ${avgW.toFixed(2)}m × ${avgH.toFixed(2)}m (${sizes.length} rects)`;
-          return { pass: false, message: `${detail}` };
+          details = `${details}Avg modular using anchor scale: ${avgW.toFixed(2)}m × ${avgH.toFixed(2)}m (${sizes.length} modulars)`;
+
+
+          // For warning check
+          let pass = true;
+          if (metersPerPixel_line == 0) {
+            pass = false;
+          }
+          if (Math.abs(metersPerPixel_anchors - metersPerPixel_line) / metersPerPixel_anchors > 0.05) {
+            details = `Difference between anchor scale and line scale: ${(Math.abs(metersPerPixel_anchors - metersPerPixel_line) / metersPerPixel_anchors * 100).toFixed(2)}%\n${details}`;
+            pass = false;
+          }
+          if (maxSide > 5 || maxSide < 0.5 || minSide > 5 || minSide < 0.1) {
+            details = `${details}\nAverage modular size seems unreasonable: ${avgW.toFixed(2)}m × ${avgH.toFixed(2)}m`;
+            pass = false;
+          }
+
+          return { pass: pass, message: `${details}` };
         } catch (err) {
           return { pass: false, message: `Error checking anchor coordinates: ${err.message}` };
         }

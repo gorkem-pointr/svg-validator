@@ -187,6 +187,26 @@ const section_ids = {
 };
 
 
+/**
+ * Map each element matching `tags` to its 1-based line in the raw SVG text.
+ * Pairs the n-th `<tag` in the text (comments/CDATA blanked out) with the
+ * n-th element in document order — DOMParser keeps no line numbers.
+ */
+function sourceLines(text, doc, tags) {
+  const clean = text.replace(/<!--[\s\S]*?-->|<!\[CDATA\[[\s\S]*?\]\]>/g, m => m.replace(/[^\n]/g, ' '));
+  const re = new RegExp(`<(?:${tags.join('|')})(?=[\\s/>])`, 'g');
+  const els = doc.querySelectorAll(tags.join(', '));
+  const lines = new Map();
+  let i = 0, line = 1, last = 0, m;
+  while (i < els.length && (m = re.exec(clean))) {
+    line += clean.slice(last, m.index).split('\n').length - 1;
+    last = m.index;
+    lines.set(els[i++], line);
+  }
+  return lines;
+}
+
+
 function getSectionById(doc, id) {
   // Capitalize id in different ways to allow for some flexibility, but still require exact matches
   return doc.querySelector(`[id="${id}"], [id="${id.charAt(0).toUpperCase() + id.slice(1).toLowerCase()}"], [id="${id.toLowerCase()}"], [id="${id.toUpperCase()}"]`);
@@ -601,7 +621,15 @@ class CheckRegistry {
             const parts = [];
             if (missing.length > 0) parts.push(`${missing.length} element(s) without id`);
             if (unique.length > 0)  parts.push(`${unique.length} duplicate id(s): ${unique.slice(0, 3).join(', ')}`);
-            return { pass: false, message: parts.join('; ') + '.' };
+            const lines = sourceLines(window.AppState?.svgText || '', doc, ['rect', 'path']);
+            const items = modulars
+              .filter(el => !el.getAttribute('id') || unique.includes(el.getAttribute('id')))
+              .map(el => ({
+                aisle: (el.parentElement !== geo && el.parentElement.getAttribute('id')) || '—',
+                id:    el.getAttribute('id') || '—',
+                line:  lines.get(el) ?? '?',
+              }));
+            return { pass: false, message: parts.join('; ') + '.', items };
           }
           return { pass: true, message: `All ${modulars.length} modular elements have unique IDs.` };
         } catch (err) {
@@ -991,7 +1019,7 @@ class CheckRunner {
         result = { pass: false, message: `Unexpected error: ${err.message}` };
       }
       const state = result.pass ? 'pass' : (check.severity === 'warning' ? 'warn' : 'fail');
-      onResult(check, state, result.message);
+      onResult(check, state, result.message, result.items);
     }
   }
 
@@ -1006,7 +1034,7 @@ class CheckRunner {
         result = { pass: false, message: `Unexpected error: ${err.message}` };
       }
       const state = result.pass ? 'pass' : (check.severity === 'warning' ? 'warn' : 'fail');
-      onResult(check, state, result.message);
+      onResult(check, state, result.message, result.items);
     }
   }
 }
@@ -1232,16 +1260,16 @@ class CheckRunner {
     updateSummary();
 
     // Run SVG checks
-    await runner.runSVGChecks(svgDoc, (check, state, msg) => {
-      updateRow(check, state, msg);
+    await runner.runSVGChecks(svgDoc, (check, state, msg, items) => {
+      updateRow(check, state, msg, items);
       updateSummary();
     });
 
     // Run API checks if requested
     if (includeApi) {
       const cfg = getApiConfig();
-      await runner.runAPIChecks(cfg, (check, state, msg) => {
-        updateRow(check, state, msg);
+      await runner.runAPIChecks(cfg, (check, state, msg, items) => {
+        updateRow(check, state, msg, items);
         updateSummary();
       });
     }
@@ -1334,21 +1362,28 @@ class CheckRunner {
     return div;
   }
 
-  function updateRow(check, state, message) {
+  function updateRow(check, state, message, items) {
     const row = rowMap[check.id];
     if (!row) return;
     row.className = `check-row ${state}`;
-    row.innerHTML = rowHTML(check, state, message);
+    row.innerHTML = rowHTML(check, state, message, items);
   }
 
-  function rowHTML(check, state, message) {
+  function rowHTML(check, state, message, items) {
     const iconSvg = `<svg viewBox="0 0 24 24" fill="none" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" class="${state === 'running' ? 'spinning' : ''}">${STATE_ICONS[state] || STATE_ICONS.pending}</svg>`;
     const severityBadge = (state === 'fail' || state === 'warn')
       ? `<span class="check-severity sev-${check.severity}">${check.severity}</span>`
       : '';
     // Replace \n with <br> for HTML rendering
+    // Optional per-element items ({ aisle, id, line }) behind a Show toggle
+    const showBtn = items?.length ? ' <button type="button" class="check-show-btn">Show</button>' : '';
     const msgBlock = message
-      ? `<div class="check-msg">${escapeHtml(message).replace(/\n/g, '<br>')}</div>`
+      ? `<div class="check-msg">${escapeHtml(message).replace(/\n/g, '<br>')}${showBtn}</div>`
+      : '';
+    const itemsBlock = items?.length
+      ? `<table class="check-items" hidden><tr><th>Aisle</th><th>Id</th><th>Line</th></tr>` +
+        items.map(i => `<tr><td>${escapeHtml(i.aisle)}</td><td>${escapeHtml(i.id)}</td><td>${escapeHtml(i.line)}</td></tr>`).join('') +
+        `</table>`
       : '';
     return `
       <div class="check-icon">${iconSvg}</div>
@@ -1356,10 +1391,19 @@ class CheckRunner {
         <div class="check-name">${escapeHtml(check.name)}</div>
         <div class="check-desc">${escapeHtml(check.description)}</div>
         ${msgBlock}
+        ${itemsBlock}
       </div>
       ${severityBadge}
     `;
   }
+
+  resultsEl.addEventListener('click', e => {
+    const btn = e.target.closest('.check-show-btn');
+    if (!btn) return;
+    const table = btn.closest('.check-body').querySelector('.check-items');
+    table.hidden = !table.hidden;
+    btn.textContent = table.hidden ? 'Show' : 'Hide';
+  });
 
   // ── Summary bar ──────────────────────────────────────────────
   function updateSummary() {

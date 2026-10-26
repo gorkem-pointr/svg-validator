@@ -695,3 +695,15 @@ footer {
   .actions { flex-direction: column; }
   .btn { justify-content: center; }
 }
+
+.check-show-btn {
+  font: inherit; font-weight: 600; color: inherit;
+  margin-left: 6px; padding: 0 8px; border-radius: 99px;
+  border: 1px solid currentColor; background: transparent; cursor: pointer;
+}
+.check-items {
+  margin-top: 6px; border-collapse: collapse;
+  font-size: .75rem; font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.check-items th { text-align: left; color: var(--text-muted); font-weight: 600; }
+.check-items th, .check-items td { padding: 2px 16px 2px 0; }

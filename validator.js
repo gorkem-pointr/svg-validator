@@ -617,6 +617,29 @@ class CheckRegistry {
       }
     },
     {
+      id: 'svg-nested-aisle-groups',
+      name: 'No groups inside aisles',
+      description: 'Aisle <g> groups must hold <rect>/<path> modulars directly — modulars inside nested <g> groups are skipped',
+      severity: 'warning',
+      async run(doc) {
+        const geo = getSectionById(doc, section_ids.geolocation);
+        if (!geo) return { pass: false, message: `No <g id="${section_ids.geolocation}"> group found.` };
+        const aisles = Array.from(geo.children).filter(c => c.localName === 'g');
+        const nested = aisles.flatMap(aisle => Array.from(aisle.querySelectorAll('g')).map(g => ({ aisle, g })));
+        if (nested.length === 0) {
+          return { pass: true, message: `All ${aisles.length} aisle group(s) hold their modulars directly.` };
+        }
+        const skipped = nested.reduce((n, { g }) => n + Array.from(g.children).filter(c => c.localName === 'rect' || c.localName === 'path').length, 0);
+        const lines = sourceLines(window.AppState?.svgText || '', doc, ['g']);
+        const items = nested.map(({ aisle, g }) => ({
+          aisle: aisle.getAttribute('id') || '—',
+          id:    g.getAttribute('id') || '—',
+          line:  lines.get(g) ?? '?',
+        }));
+        return { pass: false, message: `${nested.length} nested <g> group(s) inside aisles; their ${skipped} rect/path element(s) will be skipped.`, items };
+      }
+    },
+    {
       id: 'svg-modular-ids',
       name: 'Modular element IDs',
       description: 'All <rect> and <path> elements in geolocation group must have unique IDs. The IDs will be used as is without any processing like removing "_" like suffixes.',

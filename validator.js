@@ -412,7 +412,7 @@ class CheckRegistry {
     {
       id: 'svg-root',
       name: 'Parseable XML document',
-      description: 'File must parse as valid XML — mirrors ET.parse() / ET.fromstring() in svg_helper.py',
+      description: 'File must parse as valid XML',
       severity: 'error',
       async run(doc) {
         const parseErr = doc.querySelector('parsererror');

@@ -427,6 +427,25 @@ class CheckRegistry {
       }
     },
     {
+      id: 'svg-store-id',
+      name: 'Store id (first group)',
+      description: 'The id of the first top-level <g> is used as the Vusion store id',
+      severity: 'warning',
+      async run(doc) {
+        const firstG = Array.from(doc.documentElement.children).find(c => c.localName === 'g');
+        const id = (firstG?.getAttribute('id') || '').trim();
+        if (!id) {
+          return { pass: false, message: 'First top-level <g> is missing or has no id — no store id will be extracted.' };
+        }
+        // Editor defaults and section names: the store wrapper group is missing or unnamed
+        const generic = /^(map|maps|layer\d*|group\d*|g\d*|svg|root|store|site|floor|level|untitled\d*|gps|geolocation|walls|obstacles)$/;
+        if (generic.test(id.toLowerCase().replace(/[\s_-]/g, ''))) {
+          return { pass: false, message: `First top-level <g> id "${id}" looks generic, not a Vusion store id.` };
+        }
+        return { pass: true, message: `Store id: "${id}"` };
+      }
+    },
+    {
       id: 'svg-gps-group',
       name: 'GPS anchor group present',
       description: `Must contain a <g id="${section_ids.gps}"> group`,
